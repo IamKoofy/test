@@ -1,52 +1,53 @@
 // vars/security.groovy
 
-def call(String projectType, String projectName, String targetPath) {
+def call(String projectType) {
     // Call the appropriate scan function based on projectType
     switch (projectType) {
         case 'dotnet':
-            dotnetScan(projectName, targetPath)
+            dotnetScan()
             break
         case 'maven':
-            mavenScan(projectName, targetPath)
+            mavenScan()
             break
         case 'nodejs':
         case 'npm':
-            nodejsScan(projectName, targetPath)
+            nodejsScan()
             break
         default:
             error "Unsupported project type: ${projectType}"
     }
 }
 
-def dotnetScan(String projectName, String targetPath) {
-    echo "Performing dotnet scan for ${projectName} in ${targetPath}"
+def dotnetScan() {
+    echo "Performing dotnet scan"
     // Call your dotnet-specific scan functions here
-    snykScan(projectName, targetPath)
+    snykScan()
     nexusIQScan()
     sonarQubeScan()
 }
 
-def mavenScan(String projectName, String targetPath) {
-    echo "Performing Maven scan for ${projectName} in ${targetPath}"
+def mavenScan() {
+    echo "Performing Maven scan"
     // Call your Maven-specific scan functions here
-    snykScan(projectName, targetPath)
+    snykScan()
     nexusIQScan()
     sonarQubeScan()
 }
 
-def nodejsScan(String projectName, String targetPath) {
-    echo "Performing Node.js/NPM scan for ${projectName} in ${targetPath}"
+def nodejsScan() {
+    echo "Performing Node.js/NPM scan"
     // Call your Node.js/NPM-specific scan functions here
-    snykScan(projectName, targetPath)
+    snykScan()
     nexusIQScan()
     sonarQubeScan()
 }
 
-def snykScan(String projectName, String targetPath) {
+def snykScan() {
     script {
         echo "***Snyk Install***"
 
-        withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN')]) {
+        withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN'),
+                        string(credentialsId: 'SNYK_ORG_NAME', variable: 'SNYK_ORG_NAME')]) {
             sh 'npm install -g snyk --unsafe-perm'
             sh 'snyk auth ${SNYK_TOKEN}'
         }
@@ -56,8 +57,8 @@ def snykScan(String projectName, String targetPath) {
 
         echo "***Snyk Code Test***"
         catchError(buildResult: "UNSTABLE", stageResult: 'FAILURE') {
-            sh 'snyk config set org="${SNYK_ORG_NAME}"'
-            sh 'snyk code test --report --project-name="${projectName}" --json-file-output=code-results.json || true'
+            sh "snyk config set org=${SNYK_ORG_NAME}"
+            sh 'snyk code test --report --json-file-output=code-results.json || true'
             sh 'snyk code test --severity-threshold=high'
         }
 
