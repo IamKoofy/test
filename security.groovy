@@ -43,7 +43,37 @@ def nodejsScan(String projectName, String targetPath) {
 }
 
 def snykScan(String projectName, String targetPath) {
-    // Your existing Snyk scan code here
+    script {
+        echo "***Snyk Install***"
+
+        withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN')]) {
+            sh 'npm install -g snyk --unsafe-perm'
+            sh 'snyk auth ${SNYK_TOKEN}'
+        }
+
+        echo "***Snyk to HTML install***" 
+        sh 'npm install -g snyk-to-html'
+
+        echo "***Snyk Code Test***"
+        catchError(buildResult: "UNSTABLE", stageResult: 'FAILURE') {
+            sh 'snyk config set org="${SNYK_ORG_NAME}"'
+            sh 'snyk code test --report --project-name="${projectName}" --json-file-output=code-results.json || true'
+            sh 'snyk code test --severity-threshold=high'
+        }
+
+        echo "***Snyk to HTML - code***"
+        sh 'snyk-to-html -i code-results.json -o code-results.html'
+
+        echo "***Publish Code Artifact***"
+        publishHTML(target: [allowMissing: false,
+                             alwaysLinkToLastBuild: true,
+                             keepAll: false,
+                             reportDir: '.',
+                             includes: '**/*',
+                             reportFiles: 'code-results.html',
+                             reportName: 'Snyk Code',
+                             reportTitles: 'Snyk Code'])
+    }
 }
 
 def nexusIQScan() {
