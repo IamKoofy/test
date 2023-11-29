@@ -1,86 +1,39 @@
-// vars/security.groovy
+#!/bin/bash
 
-def call(String projectType) {
-    // Call the appropriate scan function based on projectType
-    switch (projectType) {
-        case 'dotnet':
-            dotnetScan()
-            break
-        case 'maven':
-            mavenScan()
-            break
-        case 'nodejs':
-        case 'npm':
-            nodejsScan()
-            break
-        default:
-            error "Unsupported project type: ${projectType}"
-    }
-}
+EXCEPTION_LOG_PATH=$1
+EXCEPTION_STRING=$2
+POD_DIR=$6
+THRESHOLD=$3
+EXCEPTION_LOGFILE=$4
+INTERVAL=$5
+APP_NAME=$7
 
-def dotnetScan() {
-    echo "Performing dotnet scan"
-    // Call your dotnet-specific scan functions here
-    snykScan()
-    nexusIQScan()
-    sonarQubeScan()
-}
+# Calculate time-related variables
+sub_min="-${INTERVAL} min"
+tim_cur=$(date -u "+%Y-%m-%d %H:%M:%S")
+tim_dif=$(date -u "+%Y-%m-%d %H:%M:%S" -d "$sub_min")
 
-def mavenScan() {
-    echo "Performing Maven scan"
-    // Call your Maven-specific scan functions here
-    snykScan()
-    nexusIQScan()
-    sonarQubeScan()
-}
+# Change directory to the specified path
+cd "$EXCEPTION_LOG_PATH/$APP_NAME/$POD_DIR"
 
-def nodejsScan() {
-    echo "Performing Node.js/NPM scan"
-    // Call your Node.js/NPM-specific scan functions here
-    snykScan()
-    nexusIQScan()
-    sonarQubeScan()
-}
+# Extract the records based on the timestamp within the specified time range
+nrec=$(cat "$EXCEPTION_LOGFILE" | /usr/local/bin/jq -r '.timestamp' | awk -v tst="$tim_dif" -v tend="$tim_cur" '{vard="{print $1 $2}";if (($vard >= tst) && ($vard <= tend )) {print NR;exit}} ')
 
-def snykScan() {
-    script {
-        echo "***Snyk Install***"
+# Check if there are any records found
+if [ -n "$nrec" ]; then
+    if [ "$nrec" -ge 1 ]; then
+        # Count the number of exceptions within the specified time range
+        EXCEPTION_COUNT=$(cat "$EXCEPTION_LOGFILE" | awk -v strec="$nrec" '{if (NR >= strec) print $0}' | grep -c "$EXCEPTION_STRING")
+    fi
+else
+    EXCEPTION_COUNT=0
+fi
 
-        withCredentials([string(credentialsId: 'SNYK_TOKEN', variable: 'SNYK_TOKEN'),
-                        string(credentialsId: 'SNYK_ORG_NAME', variable: 'SNYK_ORG_NAME')]) {
-            sh 'npm install -g snyk --unsafe-perm'
-            sh 'snyk auth ${SNYK_TOKEN}'
-        }
-
-        echo "***Snyk to HTML install***" 
-        sh 'npm install -g snyk-to-html'
-
-        echo "***Snyk Code Test***"
-        catchError(buildResult: "UNSTABLE", stageResult: 'FAILURE') {
-            sh "snyk config set org=${SNYK_ORG_NAME}"
-            sh 'snyk code test --report --json-file-output=code-results.json || true'
-            sh 'snyk code test --severity-threshold=high'
-        }
-
-        echo "***Snyk to HTML - code***"
-        sh 'snyk-to-html -i code-results.json -o code-results.html'
-
-        echo "***Publish Code Artifact***"
-        publishHTML(target: [allowMissing: false,
-                             alwaysLinkToLastBuild: true,
-                             keepAll: false,
-                             reportDir: '.',
-                             includes: '**/*',
-                             reportFiles: 'code-results.html',
-                             reportName: 'Snyk Code',
-                             reportTitles: 'Snyk Code'])
-    }
-}
-
-def nexusIQScan() {
-    // Your existing NexusIQ scan code here
-}
-
-def sonarQubeScan() {
-    // Your existing SonarQube scan code here
-}
+# Check if the exception count is zero, meaning the string was not found
+if [ "$EXCEPTION_COUNT" -eq 0 ]; then
+    echo "FAILURE - The string '$EXCEPTION_STRING' was not found in the log file '$EXCEPTION_LOG_PATH/$APP_NAME/$POD_DIR/$EXCEPTION_LOGFILE' within the last $INTERVAL hours."
+    exit 1
+else
+    echo "SUCCESS - The string '$EXCEPTION_STRING' was found in the log file '$EXCEPTION_LOG_PATH/$APP_NAME/$POD_DIR/$EXCEPTION_LOGFILE' within the last $INTERVAL hours."
+    exit 0
+fi
