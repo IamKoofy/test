@@ -1,39 +1,40 @@
-#!/bin/bash
+---
+- name: COPY AND EXECUTE THE scriptp
+  script: roles/ExceptionCheck/files/EXC-GetPODS.sh '{{ EXCEPTION_LOG_PATH }}' '{{ TOT_NUMBER_PODS }}' '{{ POD_NAME }}'
+  register: scriptp
+  changed_when: false
 
-EXCEPTION_LOG_PATH=$1
-EXCEPTION_STRING=$2
-POD_DIR=$6
-THRESHOLD=$3
-EXCEPTION_LOGFILE=$4
-INTERVAL=$5
-APP_NAME=$7
+- name: PRINT scriptp STANDARD OUTPUT1
+  debug:
+    msg: "{{ scriptp.stdout_lines }}"
 
-# Calculate time-related variables
-sub_min="-${INTERVAL} min"
-tim_cur=$(date -u "+%Y-%m-%d %H:%M:%S")
-tim_dif=$(date -u "+%Y-%m-%d %H:%M:%S" -d "$sub_min")
+- name: SET FACT FOR POD LIST
+  set_fact:
+    pod_list: "{{ scriptp.stdout_lines | reject('match', '^$') | difference(scriptp.stdout_lines | select('search', 'GETPOD_SUCCESS') | list) }}"
 
-# Change directory to the specified path
-cd "$EXCEPTION_LOG_PATH/$APP_NAME/$POD_DIR"
+- name: EXCEPTION CHECK FOR EACH POD - PTC EPAAS***
+  include_role:
+    name: ExceptionCheck
+    tasks_from: EXC-CheckAPP-EPAAS
+  vars:
+    EXC_LOG_PATH: "{{ EXCEPTION_LOG_PATH }}"
+    EXC_STRINGS: "{{ EXCEPTION_STRINGS }}"
+    EXC_PODNAME: "{{ item }}"
+    EXC_THRESHOLD: "{{ THRESHOLD }}"
+    EXC_LOGFILE: "{{ EXCEPTION_LOGFILE }}"
+    EXC_TIME_INTERVAL: "{{ TIME_INTERVAL }}"
+    EXC_APP_NAME: "{{ POD_NAME }}"
+  when: (item | length > 0) and scriptp.stdout.find("GETPOD_SUCCESS") != -1
+  with_items: "{{ pod_list }}"
 
-# Extract the records based on the timestamp within the specified time range
-nrec=$(cat "$EXCEPTION_LOGFILE" | /usr/local/bin/jq -r '.timestamp' | awk -v tst="$tim_dif" -v tend="$tim_cur" '{vard="{print $1 $2}";if (($vard >= tst) && ($vard <= tend )) {print NR;exit}} ')
+- name: RUN EXCEPTION SCRIPT AND NOTIFY IF KEYWORD NOT FOUND
+  command: "/path/to/your/script.sh '{{ EXCEPTION_LOG_PATH }}' 'inside SMS' '{{ POD_NAME }}' '{{ THRESHOLD }}' '{{ EXCEPTION_LOGFILE }}' 3 '{{ POD_NAME }}'"
+  register: exception_script_output
 
-# Check if there are any records found
-if [ -n "$nrec" ]; then
-    if [ "$nrec" -ge 1 ]; then
-        # Count the number of exceptions within the specified time range
-        EXCEPTION_COUNT=$(cat "$EXCEPTION_LOGFILE" | awk -v strec="$nrec" '{if (NR >= strec) print $0}' | grep -c "$EXCEPTION_STRING")
-    fi
-else
-    EXCEPTION_COUNT=0
-fi
-
-# Check if the exception count is zero, meaning the string was not found
-if [ "$EXCEPTION_COUNT" -eq 0 ]; then
-    echo "FAILURE - The string '$EXCEPTION_STRING' was not found in the log file '$EXCEPTION_LOG_PATH/$APP_NAME/$POD_DIR/$EXCEPTION_LOGFILE' within the last $INTERVAL hours."
-    exit 1
-else
-    echo "SUCCESS - The string '$EXCEPTION_STRING' was found in the log file '$EXCEPTION_LOG_PATH/$APP_NAME/$POD_DIR/$EXCEPTION_LOGFILE' within the last $INTERVAL hours."
-    exit 0
-fi
+- name: NOTIFY IF KEYWORD NOT FOUND
+  mail:
+    host: "your_mail_server"
+    port: 25
+    subject: "Keyword Not Found Alert"
+    body: "The keyword 'inside SMS' was not found in the log file within the last 3 hours."
+  when: exception_script_output.rc == 1
