@@ -1,21 +1,15 @@
-{
-  "name": "Nexus Credential",
-  "description": "Custom Credential for Nexus Authentication",
-  "kind": "cloud",
-  "inputs": [
-    {
-      "id": "username",
-      "label": "Nexus Username",
-      "type": "string"
-    },
-    {
-      "id": "password",
-      "label": "Nexus Password",
-      "secret": true,
-      "type": "string"
-    }
-  ]
-}
+fields:
+  - id: username
+    label: Nexus Username
+    type: string
+  - id: password
+    label: Nexus Password
+    secret: true
+    type: string
+env:
+  NEXUS_USERNAME: '{{ username }}'
+  NEXUS_PASSWORD: '{{ password }}'
+
 
 
     - name: Get Nexus Credentials from AWX
