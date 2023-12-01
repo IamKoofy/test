@@ -1,27 +1,10 @@
-fields:
-  - id: username
-    label: Nexus Username
-    type: string
-  - id: password
-    label: Nexus Password
-    secret: true
-    type: string
-env:
-  NEXUS_USERNAME: '{{ username }}'
-  NEXUS_PASSWORD: '{{ password }}'
-
-
-
-    - name: Get Nexus Credentials from AWX
+    - name: Get OpenShift Token from Custom Credential
       set_fact:
-        nexus_credentials: "{{ lookup('ansible.builtin.credentials', 'your_nexus_credential', wantlist=True) }}"
+        openshift_credentials: "{{ lookup('ansible.builtin.credentials', 'Your Custom Credential Name', wantlist=True) }}"
 
-    - name: Download Model Directory ZIP from Nexus with Authentication
-      ansible.builtin.uri:
-        url: "{{ nexus_base_url }}/{{ nexus_repository_path }}/{{ model_zip_file }}"
-        dest: "{{ extraction_folder }}/"
-        follow_redirects: all
-        user: "{{ nexus_credentials.username }}"
-        password: "{{ nexus_credentials.password }}"
-        force_basic_auth: yes
-      register: download_result
+    - name: Extract OpenShift Token
+      set_fact:
+        openshift_token: "{{ openshift_credentials.token }}"
+
+    - name: Login to OpenShift
+      ansible.builtin.command: "oc login --server={{ server }} --token={{ openshift_token }}"
