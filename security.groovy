@@ -11,6 +11,13 @@
     oc_project_path: "{{ oc_project_path | default('/app/projects/Hotel/') }}"
 
   tasks:
+
+    - name: Copy the model directory to a pod containing "rasaniu"
+  ansible.builtin.shell: >
+    oc rsync {{ extraction_folder }}/{{ model_directory }}/{{ model_subdirectory }}
+    {{ item.split()[0] }}:{{ oc_project_path }}
+  when: pods_output.stdout_lines | length > 1 and "'rasaniu' in item"
+  with_items: "{{ pods_output.stdout_lines }}"
     - name: Download Model Directory ZIP from Nexus with Authentication
       ansible.builtin.uri:
         url: "{{ nexus_base_url }}/{{ nexus_repository_path }}/{{ model_zip_file }}"
