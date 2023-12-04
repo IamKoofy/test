@@ -14,10 +14,10 @@
 
 - name: Copy the model directory to a pod containing "rasaniu"
   ansible.builtin.shell: >
-    oc rsync {{ extraction_folder }}/{{ model_directory }}/{{ model_subdirectory }}
-    {{ (pods_output.stdout_lines | select('match', 'rasaniu') | first).split()[0] }}:{{ oc_project_path }}
-  when: pods_output.stdout_lines | length > 0 and "'rasaniu' in item"
-
+    oc cp {{ extraction_folder }}/{{ model_directory }}/{{ model_subdirectory }}
+    {{ item.split()[0] }}:{{ oc_project_path }}
+  loop: "{{ pods_output.stdout_lines }}"
+  when: "'rasaniu' in item"
 
     - name: Download Model Directory ZIP from Nexus with Authentication
       ansible.builtin.uri:
