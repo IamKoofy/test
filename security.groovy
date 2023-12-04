@@ -1,18 +1,16 @@
----
-- name: Automate Sprint Release
+- name: Automate copy model folder to PV each sprint release
   hosts: localhost
   gather_facts: false
 
-  tasks:
-    - set_fact:
-        nexus_base_url: "https://nexus.example.com/repository"
-        extraction_folder: "/Users/Model"
-        oc_project_name: "project_name"
-        oc_project_path: "/app/project_path"
-        prod_pod_label_selector: "app=prod-app"
-        model_directory: "model_directory"
-        model_zip_file: "model_directory.zip"  # Update with the actual zip file name
+  vars:
+    nexus_base_url: "{{ nexus_base_url | default('https://repos.nexus.com/repository') }}"
+    nexus_repository_path: "{{ nexus_repository_path | default('models') }}"
+    model_zip_file: "{{ model_zip_file | default('model_20221128-170018.zip') }}"
+    extraction_folder: "{{ extraction_folder | default('/Users/Model') }}"
+    oc_project_name: "{{ oc_project_name | default('hotel') }}"
+    oc_project_path: "{{ oc_project_path | default('/app/projects/Hotel/') }}"
 
+  tasks:
     - name: Download Model Directory ZIP from Nexus with Authentication
       ansible.builtin.uri:
         url: "{{ nexus_base_url }}/{{ nexus_repository_path }}/{{ model_zip_file }}"
@@ -22,9 +20,6 @@
         password: "{{ nexus_password }}"
         force_basic_auth: yes
       register: download_result
-      environment:
-        NEXUS_USERNAME: "{{ nexus_username }}"
-        NEXUS_PASSWORD: "{{ nexus_password }}"  # This should be a secret in AWX
 
     - name: Fail if download failed
       ansible.builtin.fail:
@@ -38,9 +33,9 @@
         remote_src: false  # Important to specify this when unzipping from the control host
 
     - name: Login to OpenShift
-      ansible.builtin.command: "oc login"
-      args:
-        cmd: "oc login"
+      ansible.builtin.command: "oc login --server={{ server }} --token={{ openshift_token }}"
+      environment:
+        KUBECONFIG: "{{ extraction_folder }}/kubeconfig"  # Update the kubeconfig path
 
     - name: Switch to the test project
       ansible.builtin.command: "oc project {{ oc_project_name }}"
@@ -51,7 +46,7 @@
         chdir: "{{ extraction_folder }}"
 
     - name: List the pods
-      ansible.builtin.command: "oc get pods --selector={{ prod_pod_label_selector }}"
+      ansible.builtin.command: "oc get pods"
       register: pods_output
 
     - name: Copy the model directory to the first prod pod
