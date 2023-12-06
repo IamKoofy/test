@@ -14,6 +14,8 @@ def dockerBuildAndPush() {
         echo 'Image Build Completed'
         
         // Push the Docker image to Nexus or your Docker registry
-        app.push()
+        docker.withRegistry(env.NexusDockerRepo, 'NEXUS-REPO-CREDENTIALS') {
+            app.push()
+        }
     }
 }
