@@ -1,12 +1,9 @@
- // Return the image tag for later use
-        return imageTag
+stages {
+    stage('GitCheckOut') {
+        steps {
+            echo "*** Begin Checking out Code from GitHub ***"
+            git branch: params.GIT_BRANCH, credentialsId: params.GIT_USER, url: params.GIT_URL
+            echo "*** End Checking out Code from GitHub ***"
+        }
     }
-}
-
-def deployToOpenShift(deploymentScript = env.DEPLOYMENT_SCRIPT ?: 'default-deployment-script.sh', imageTag) {
-    echo "*** Deploying Application in AWS OpenShift ***"
-    echo "${imageTag}"
-
-    // Replace with the actual OpenShift deployment command
-    sh "${deploymentScript} -t ${env.AUTH_TOKEN} -n ${env.NAME_SPACE} -d ${DEPLOYMENT_CONFIG} -c ${DEPLOYMENT_CONFIG} -i ${env.NEXUS_REPO}/gtqc/${repository}:${imageTag}"
 }
