@@ -1,5 +1,18 @@
-def getEc2InstanceList(params) {
-    def filter = (params.EC2_ALL_INSTANCES == 'yes') ? "" : "--filters Name=tag-value,Values='${params.APP_NAME}'"
-    sh "aws ec2 describe-instances ${filter} --output text --query 'Reservations[*].Instances[*].InstanceId' > ./instance_id.list"
-    readFile(file: './instance_id.list').readLines()
+def getEc2Instances(params) {
+    def ec2Instances = []
+    withAWS(credentials: "myteam-${params.AWS_ACCOUNT}-${params.AWS_ENVIRONMENT}", region: 'us-east-1') {
+        sh "aws ec2 describe-instances --filters Name=tag-value,Values='${params.APP_NAME}' --output json > ./instance_list.json"
+        def instanceList = readJSON file: './instance_list.json'
+
+        instanceList.Reservations.each { reservation ->
+            reservation.Instances.each { instance ->
+                def ec2Instance = [:]
+                ec2Instance['instanceId'] = instance.InstanceId
+                ec2Instance['instanceName'] = instance.Tags.find { it.Key == 'Name' }?.Value ?: instance.InstanceId
+                ec2Instance['instanceState'] = instance.State.Name
+                ec2Instances.add(ec2Instance)
+            }
+        }
+    }
+    return ec2Instances
 }
