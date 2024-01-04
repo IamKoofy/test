@@ -1,0 +1,14 @@
+properties([
+    parameters([
+        string(name: 'EC2_ACTION', defaultValue: '', description: 'Specify "start" or "stop"'),
+        string(name: 'APP_NAME', defaultValue: '', description: 'Name of the application or tag'),
+        string(name: 'AWS_ENVIRONMENT', defaultValue: '', description: 'AWS environment, e.g., "dev"'),
+        booleanParam(name: 'EC2_ALL_INSTANCES', defaultValue: false, description: 'Stop or start all instances')
+    ])
+])
+
+// Call the shared library function
+@Library('your-shared-library') _
+
+// Call the function from the shared library
+startStopEC2.call(params)
