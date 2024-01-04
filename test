@@ -76,7 +76,7 @@ def handleEc2Instance(ec2Instance, ec2Action, params) {
 
 def getEc2Instances(params) {
     def ec2Instances = []
-    withAWS(credentials: "gbt-devops-${params.AWS_ACCOUNT}-${params.AWS_ENVIRONMENT}", region: 'us-east-1') {
+    withAWS(credentials: "myteam-${params.AWS_ACCOUNT}-${params.AWS_ENVIRONMENT}", region: 'us-east-1') {
         sh "aws ec2 describe-instances --filters Name=tag-value,Values='${params.APP_NAME}' --output json > ./instance_list.json"
         def instanceList = readJSON file: './instance_list.json'
 
@@ -95,7 +95,7 @@ def getEc2Instances(params) {
 
 def getEc2Instance(instanceID, params) {
     def ec2Instance = [:]
-    withAWS(credentials: "gbt-devops-${params.AWS_ACCOUNT}-${params.AWS_ENVIRONMENT}", region: 'us-east-1') {
+    withAWS(credentials: "myteam-${params.AWS_ACCOUNT}-${params.AWS_ENVIRONMENT}", region: 'us-east-1') {
         sh "aws ec2 describe-instances --instance-ids ${instanceID} --output json > ./instance.json"
         def instance = readJSON file: './instance.json'
         ec2Instance['instanceId'] = instance.Reservations[0].Instances[0].InstanceId
