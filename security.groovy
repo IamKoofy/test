@@ -1,3 +1,5 @@
+// File: vars/startStopEC2.groovy
+
 def call(Map params) {
     setBuildName(params)
     performEc2Actions(params)
@@ -19,9 +21,7 @@ def performEc2Actions(params) {
 def performEc2ActionsAllInstances(params) {
     echo "Performing EC2 actions on all instances..."
     def ec2Action = params.EC2_ACTION.toLowerCase()
-    def ec2Instances = getEc2Instances(params)
-
-    for (ec2Instance in ec2Instances) {
+    getEc2Instances(params).each { ec2Instance ->
         handleEc2Instance(ec2Instance, ec2Action, params)
     }
 }
@@ -29,9 +29,8 @@ def performEc2ActionsAllInstances(params) {
 def performEc2ActionsSelectedInstances(params) {
     echo "Performing EC2 actions on selected instances..."
     def ec2Action = params.EC2_ACTION.toLowerCase()
-    def ec2Instances = getEc2Instances(params)
-
-    for (ec2Instance in ec2Instances) {
+    getEc2InstanceList(params).each { instanceID ->
+        def ec2Instance = getEc2Instance(instanceID, params)
         handleEc2Instance(ec2Instance, ec2Action, params)
     }
 }
@@ -58,14 +57,15 @@ def handleEc2Instance(ec2Instance, ec2Action, params) {
 
         if ("${IS_APPROVED}" == "YES") {
             echo "*** Instance ${instanceName} / ${instanceID} is going to be ${ec2Action} ***"
-            sh "aws ec2 ${ec2Action}-instances --instance-ids ${instanceID}"
             def ec2Environment = params.AWS_ENVIRONMENT.toUpperCase()
-            echo "*** EC2 Environment is ${ec2Environment} ***"
             wrap([$class: 'BuildUser']) {
                 echo "*** Sending Slack Notification ***"
                 slackSend channel: "${SLACK_CHANNEL}", color: (ec2Action == 'stop') ? "#FF7F50" : "#9FE2BF",
                           message: "${BUILD_USER} :: ${params.APP_NAME} :: ${ec2Environment} :: EC2 Instance ${instanceName} / ${instanceID} is ${ec2Action}:: ${BUILD_TIMESTAMP}"
             }
+
+            // Execute start or stop command
+            sh "aws ec2 ${ec2Action}-instances --instance-ids ${instanceID} --region us-east-1"
         } else {
             echo "*** Instance ${instanceName} / ${instanceID} will not be ${ec2Action} as per user input ***"
         }
@@ -91,4 +91,21 @@ def getEc2Instances(params) {
         }
     }
     return ec2Instances
+}
+
+def getEc2Instance(instanceID, params) {
+    def ec2Instance = [:]
+    withAWS(credentials: "myteam-${params.AWS_ACCOUNT}-${params.AWS_ENVIRONMENT}", region: 'us-east-1') {
+        sh "aws ec2 describe-instances --instance-ids ${instanceID} --output json > ./instance.json"
+        def instance = readJSON file: './instance.json'
+        ec2Instance['instanceId'] = instance.Reservations[0].Instances[0].InstanceId
+        ec2Instance['instanceName'] = instance.Reservations[0].Instances[0].Tags.find { it.Key == 'Name' }?.Value ?: instance.Reservations[0].Instances[0].InstanceId
+        ec2Instance['instanceState'] = instance.Reservations[0].Instances[0].State.Name
+    }
+    return ec2Instance
+}
+
+def getEc2InstanceList(params) {
+    sh "aws ec2 describe-instances --filters Name=tag-value,Values='${params.APP_NAME}' --output text --query 'Reservations[*].Instances[*].InstanceId' > ./instance_id.list"
+    return readFile(file: './instance_id.list').readLines()
 }
