@@ -21,8 +21,8 @@ def performEc2Actions(params) {
 def performEc2ActionsAllInstances(params) {
     echo "Performing EC2 actions on all instances..."
     def ec2Action = params.EC2_ACTION.toLowerCase()
-    getEc2Instances(params).each { ec2Instance ->
-        handleEc2Instance(ec2Instance, ec2Action, params)
+    getEc2Instances(params, params.AWS_CREDENTIALS).each { ec2Instance ->
+        handleEc2Instance(ec2Instance, ec2Action, params, params.AWS_CREDENTIALS)
     }
 }
 
@@ -30,12 +30,12 @@ def performEc2ActionsSelectedInstances(params) {
     echo "Performing EC2 actions on selected instances..."
     def ec2Action = params.EC2_ACTION.toLowerCase()
     getEc2InstanceList(params).each { instanceID ->
-        def ec2Instance = getEc2Instance(instanceID, params)
-        handleEc2Instance(ec2Instance, ec2Action, params)
+        def ec2Instance = getEc2Instance(instanceID, params, params.AWS_CREDENTIALS)
+        handleEc2Instance(ec2Instance, ec2Action, params, params.AWS_CREDENTIALS)
     }
 }
 
-def handleEc2Instance(ec2Instance, ec2Action, params) {
+def handleEc2Instance(ec2Instance, ec2Action, params, credentials) {
     def instanceID = ec2Instance['instanceId']
     def instanceName = ec2Instance['instanceName']
     def instanceState = ec2Instance['instanceState']
@@ -64,8 +64,10 @@ def handleEc2Instance(ec2Instance, ec2Action, params) {
                           message: "${BUILD_USER} :: ${params.APP_NAME} :: ${ec2Environment} :: EC2 Instance ${instanceName} / ${instanceID} is ${ec2Action}:: ${BUILD_TIMESTAMP}"
             }
 
-            // Execute start or stop command
-            sh "aws ec2 ${ec2Action}-instances --instance-ids ${instanceID} --region us-east-1"
+            // Execute start or stop command using specified credentials
+            withAWS(credentials: credentials, region: 'us-east-1') {
+                sh "aws ec2 ${ec2Action}-instances --instance-ids ${instanceID} --region us-east-1"
+            }
         } else {
             echo "*** Instance ${instanceName} / ${instanceID} will not be ${ec2Action} as per user input ***"
         }
@@ -74,9 +76,9 @@ def handleEc2Instance(ec2Instance, ec2Action, params) {
     }
 }
 
-def getEc2Instances(params) {
+def getEc2Instances(params, credentials) {
     def ec2Instances = []
-    withAWS(credentials: "myteam-${params.AWS_ACCOUNT}-${params.AWS_ENVIRONMENT}", region: 'us-east-1') {
+    withAWS(credentials: credentials, region: 'us-east-1') {
         sh "aws ec2 describe-instances --filters Name=tag-value,Values='${params.APP_NAME}' --output json > ./instance_list.json"
         def instanceList = readJSON file: './instance_list.json'
 
@@ -93,9 +95,9 @@ def getEc2Instances(params) {
     return ec2Instances
 }
 
-def getEc2Instance(instanceID, params) {
+def getEc2Instance(instanceID, params, credentials) {
     def ec2Instance = [:]
-    withAWS(credentials: "myteam-${params.AWS_ACCOUNT}-${params.AWS_ENVIRONMENT}", region: 'us-east-1') {
+    withAWS(credentials: credentials, region: 'us-east-1') {
         sh "aws ec2 describe-instances --instance-ids ${instanceID} --output json > ./instance.json"
         def instance = readJSON file: './instance.json'
         ec2Instance['instanceId'] = instance.Reservations[0].Instances[0].InstanceId
