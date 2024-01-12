@@ -1,113 +1,46 @@
-// File: vars/startStopEC2.groovy
+1. Provision the External PostgreSQL Database:
 
-def call(Map params) {
-    setBuildName(params)
-    performEc2Actions(params)
-}
+Create a new PostgreSQL database instance in OpenShift, ensuring it uses UTF8 encoding.
+Obtain the database connection details (hostname, port, username, password, database name).
+2. Download the Database Migrator Utility:
 
-def setBuildName(params) {
-    echo "Setting build name..."
-    currentBuild.displayName = "#${env.BUILD_NUMBER} - ${params.EC2_ACTION} - ${params.APP_NAME} - ${params.AWS_ENVIRONMENT}"
-}
+Retrieve the Database Migrator utility from the Sonatype Downloads page: https://help.sonatype.com/repomanager3/download
+Ensure you're using OpenJDK 8 (Oracle JDK is not compatible).
+3. Back Up Existing Data (Optional):
 
-def performEc2Actions(params) {
-    if (params.EC2_ALL_INSTANCES == 'yes') {
-        performEc2ActionsAllInstances(params)
-    } else {
-        performEc2ActionsSelectedInstances(params)
-    }
-}
+Perform a full backup of your current Nexus data using your preferred methods.
+4. Shut Down Nexus Repository:
 
-def performEc2ActionsAllInstances(params) {
-    echo "Performing EC2 actions on all instances..."
-    def ec2Action = params.EC2_ACTION.toLowerCase()
-    getEc2Instances(params, params.AWS_CREDENTIALS).each { ec2Instance ->
-        handleEc2Instance(ec2Instance, ec2Action, params, params.AWS_CREDENTIALS)
-    }
-}
+Stop the Nexus server running on your VM.
+5. Run the Database Migrator:
 
-def performEc2ActionsSelectedInstances(params) {
-    echo "Performing EC2 actions on selected instances..."
-    def ec2Action = params.EC2_ACTION.toLowerCase()
-    getEc2InstanceList(params).each { instanceID ->
-        def ec2Instance = getEc2Instance(instanceID, params, params.AWS_CREDENTIALS)
-        handleEc2Instance(ec2Instance, ec2Action, params, params.AWS_CREDENTIALS)
-    }
-}
+Navigate to the $data-dir/db directory of your Nexus installation.
+Execute the migrator utility, providing the following information:
+Path to the Nexus data directory
+JDBC URL for the external PostgreSQL database
+Database username and password
+Example command: java -jar nexus-migrator.jar -data-dir /opt/sonatype-work/nexus3 -jdbc-url jdbc:postgresql://<hostname>:<port>/<database_name> -username <username> -password <password>
+6. Configure Nexus for External Database:
 
-def handleEc2Instance(ec2Instance, ec2Action, params, credentials) {
-    def instanceID = ec2Instance['instanceId']
-    def instanceName = ec2Instance['instanceName']
-    def instanceState = ec2Instance['instanceState']
+Create the <data-dir>/etc/nexus.properties file if it doesn't exist.
+Add the following properties:
+nexus.datastore.enabled=true
+nexus.datastore.provider=postgresql
+nexus.datastore.url=<jdbc_url>
+nexus.datastore.user=<username>
+nexus.datastore.password=<password>
+7. Restart Nexus Repository:
 
-    echo "*** Instance Name of ${instanceID} is ${instanceName} ***"
-    echo "*** Instance State of ${instanceName} / ${instanceID} is ${instanceState} ***"
+Start the Nexus server on your VM.
+It will now connect to the external PostgreSQL database in OpenShift.
+Additional Considerations:
 
-    if ((instanceState == "running" && ec2Action == "stop") || (instanceState == "stopped" && ec2Action == "start")) {
-        try {
-            timeout(time: 1, unit: 'MINUTES') {
-                IS_APPROVED = input(message: "Are you OK to ${ec2Action} the instance ${instanceName} / ${instanceID}?",
-                                    parameters: [[$class: 'ChoiceParameterDefinition', choices: ['YES', 'NO'].join('\n'), name: 'Select YES / NO']])
-            }
-        } catch (exc) {
-            wrap([$class: 'BuildUser']) {
-                error("${BUILD_USER} aborted the approval input to ${ec2Action} the instance")
-            }
-        }
+Firewall Rules: Ensure firewall rules allow communication between your VM and the PostgreSQL database in OpenShift.
+Network Connectivity: Verify network connectivity between the VM and the PostgreSQL database.
+OpenShift Configuration: Review OpenShift documentation for any specific configuration requirements related to external database connections.
+Nexus License: If using Nexus Repository Pro, ensure your license is valid and accessible.
+Upgrade Considerations: If using an older Nexus version, upgrade to the latest release before migration for compatibility and support.
+Troubleshooting:
 
-        if ("${IS_APPROVED}" == "YES") {
-            echo "*** Instance ${instanceName} / ${instanceID} is going to be ${ec2Action} ***"
-            def ec2Environment = params.AWS_ENVIRONMENT.toUpperCase()
-            wrap([$class: 'BuildUser']) {
-                echo "*** Sending Slack Notification ***"
-                slackSend channel: "${SLACK_CHANNEL}", color: (ec2Action == 'stop') ? "#FF7F50" : "#9FE2BF",
-                          message: "${BUILD_USER} :: ${params.APP_NAME} :: ${ec2Environment} :: EC2 Instance ${instanceName} / ${instanceID} is ${ec2Action}:: ${BUILD_TIMESTAMP}"
-            }
-
-            // Execute start or stop command using specified credentials
-            withAWS(credentials: credentials, region: 'us-east-1') {
-                sh "aws ec2 ${ec2Action}-instances --instance-ids ${instanceID} --region us-east-1"
-            }
-        } else {
-            echo "*** Instance ${instanceName} / ${instanceID} will not be ${ec2Action} as per user input ***"
-        }
-    } else {
-        echo "*** Instance ${instanceName} / ${instanceID} is already in ${instanceState} state, so no further action is required ***"
-    }
-}
-
-def getEc2Instances(params, credentials) {
-    def ec2Instances = []
-    withAWS(credentials: credentials, region: 'us-east-1') {
-        sh "aws ec2 describe-instances --filters Name=tag-value,Values='${params.APP_NAME}' --output json > ./instance_list.json"
-        def instanceList = readJSON file: './instance_list.json'
-
-        instanceList.Reservations.each { reservation ->
-            reservation.Instances.each { instance ->
-                def ec2Instance = [:]
-                ec2Instance['instanceId'] = instance.InstanceId
-                ec2Instance['instanceName'] = instance.Tags.find { it.Key == 'Name' }?.Value ?: instance.InstanceId
-                ec2Instance['instanceState'] = instance.State.Name
-                ec2Instances.add(ec2Instance)
-            }
-        }
-    }
-    return ec2Instances
-}
-
-def getEc2Instance(instanceID, params, credentials) {
-    def ec2Instance = [:]
-    withAWS(credentials: credentials, region: 'us-east-1') {
-        sh "aws ec2 describe-instances --instance-ids ${instanceID} --output json > ./instance.json"
-        def instance = readJSON file: './instance.json'
-        ec2Instance['instanceId'] = instance.Reservations[0].Instances[0].InstanceId
-        ec2Instance['instanceName'] = instance.Reservations[0].Instances[0].Tags.find { it.Key == 'Name' }?.Value ?: instance.Reservations[0].Instances[0].InstanceId
-        ec2Instance['instanceState'] = instance.Reservations[0].Instances[0].State.Name
-    }
-    return ec2Instance
-}
-
-def getEc2InstanceList(params) {
-    sh "aws ec2 describe-instances --filters Name=tag-value,Values='${params.APP_NAME}' --output text --query 'Reservations[*].Instances[*].InstanceId' > ./instance_id.list"
-    return readFile(file: './instance_id.list').readLines()
-}
+Consult Sonatype documentation for troubleshooting guidance: https://help.sonatype.com/repomanager3
+Contact Sonatype support if you encounter issues.
