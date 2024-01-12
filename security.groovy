@@ -1,59 +1,30 @@
-Expose PostgreSQL Service:
+Connect to PostgreSQL:
 
-Expose the PostgreSQL service to make it accessible within the OpenShift cluster.
-
+Connect to PostgreSQL using a tool such as psql or any PostgreSQL client.
 bash
 Copy code
-oc expose svc/postgresql
-Retrieve PostgreSQL Connection Information:
+psql -h <host> -U <admin_user> -d <database>
+Replace <host>, <admin_user>, and <database> with your actual values.
 
-Retrieve the connection information for the PostgreSQL instance.
+Grant Permissions:
 
-bash
+Once connected, grant the necessary permissions to the user. For a Nexus Repository Manager, you typically need to grant privileges like SELECT, INSERT, UPDATE, DELETE, and USAGE on the relevant schema.
+sql
 Copy code
-export PG_HOST=$(oc get svc/postgresql -o=jsonpath='{.spec.clusterIP}')
-export PG_PORT=$(oc get svc/postgresql -o=jsonpath='{.spec.ports[0].port}')
-Step 2: Configure Nexus Repository Manager
-Access Nexus Server:
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO <your_user>;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO <your_user>;
+Replace <your_user> with the actual username you're using for Nexus Repository Manager.
 
-Log in to your Nexus Repository Manager server running on the VM.
-Backup Nexus Configuration:
+Set Default Privileges (Optional):
 
-Before making any changes, it's a good practice to backup the Nexus configuration. You can do this through the Nexus UI or by copying the nexus.properties file.
-Update Nexus Configuration:
-
-Edit the nexus.properties file, usually located in the nexus/conf directory.
-
-bash
+You might want to set default privileges so that future objects created in the schema automatically inherit the necessary permissions.
+sql
 Copy code
-vi /path/to/nexus/conf/nexus.properties
-Update the database configuration section:
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <your_user>;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO <your_user>;
+Grant Connect (if necessary):
 
-properties
+If your Nexus Repository Manager connects to the database, you need to grant the user the CONNECT privilege.
+sql
 Copy code
-# Database Configuration
-nexus-args=${karaf.etc}/jetty.xml,${karaf.etc}/jetty-http.xml,${karaf.etc}/jetty-requestlog.xml
-nexus-edition=nexus-pro-edition
-nexus-features=nexus-pro-feature
-nexus.clustered=false
-database.url=jdbc:postgresql://${PG_HOST}:${PG_PORT}/<your_database>
-database.username=<your_user>
-database.password=<your_password>
-Replace <your_database>, <your_user>, and <your_password> with the PostgreSQL database name, user, and password.
-
-Save Changes:
-
-Save the changes to the nexus.properties file.
-Step 3: Restart Nexus Repository Manager
-Restart Nexus Repository Manager to apply the changes:
-
-bash
-Copy code
-service nexus restart
-Step 4: Verify Configuration
-Check the Nexus logs for any errors during startup:
-
-bash
-Copy code
-tail -f /path/to/nexus/log/nexus.log
-Access the Nexus web interface and verify that it's functioning correctly.
+GRANT CONNECT ON DATABASE <database> TO <your_user>;
