@@ -1,46 +1,59 @@
-1. Provision the External PostgreSQL Database:
+Expose PostgreSQL Service:
 
-Create a new PostgreSQL database instance in OpenShift, ensuring it uses UTF8 encoding.
-Obtain the database connection details (hostname, port, username, password, database name).
-2. Download the Database Migrator Utility:
+Expose the PostgreSQL service to make it accessible within the OpenShift cluster.
 
-Retrieve the Database Migrator utility from the Sonatype Downloads page: https://help.sonatype.com/repomanager3/download
-Ensure you're using OpenJDK 8 (Oracle JDK is not compatible).
-3. Back Up Existing Data (Optional):
+bash
+Copy code
+oc expose svc/postgresql
+Retrieve PostgreSQL Connection Information:
 
-Perform a full backup of your current Nexus data using your preferred methods.
-4. Shut Down Nexus Repository:
+Retrieve the connection information for the PostgreSQL instance.
 
-Stop the Nexus server running on your VM.
-5. Run the Database Migrator:
+bash
+Copy code
+export PG_HOST=$(oc get svc/postgresql -o=jsonpath='{.spec.clusterIP}')
+export PG_PORT=$(oc get svc/postgresql -o=jsonpath='{.spec.ports[0].port}')
+Step 2: Configure Nexus Repository Manager
+Access Nexus Server:
 
-Navigate to the $data-dir/db directory of your Nexus installation.
-Execute the migrator utility, providing the following information:
-Path to the Nexus data directory
-JDBC URL for the external PostgreSQL database
-Database username and password
-Example command: java -jar nexus-migrator.jar -data-dir /opt/sonatype-work/nexus3 -jdbc-url jdbc:postgresql://<hostname>:<port>/<database_name> -username <username> -password <password>
-6. Configure Nexus for External Database:
+Log in to your Nexus Repository Manager server running on the VM.
+Backup Nexus Configuration:
 
-Create the <data-dir>/etc/nexus.properties file if it doesn't exist.
-Add the following properties:
-nexus.datastore.enabled=true
-nexus.datastore.provider=postgresql
-nexus.datastore.url=<jdbc_url>
-nexus.datastore.user=<username>
-nexus.datastore.password=<password>
-7. Restart Nexus Repository:
+Before making any changes, it's a good practice to backup the Nexus configuration. You can do this through the Nexus UI or by copying the nexus.properties file.
+Update Nexus Configuration:
 
-Start the Nexus server on your VM.
-It will now connect to the external PostgreSQL database in OpenShift.
-Additional Considerations:
+Edit the nexus.properties file, usually located in the nexus/conf directory.
 
-Firewall Rules: Ensure firewall rules allow communication between your VM and the PostgreSQL database in OpenShift.
-Network Connectivity: Verify network connectivity between the VM and the PostgreSQL database.
-OpenShift Configuration: Review OpenShift documentation for any specific configuration requirements related to external database connections.
-Nexus License: If using Nexus Repository Pro, ensure your license is valid and accessible.
-Upgrade Considerations: If using an older Nexus version, upgrade to the latest release before migration for compatibility and support.
-Troubleshooting:
+bash
+Copy code
+vi /path/to/nexus/conf/nexus.properties
+Update the database configuration section:
 
-Consult Sonatype documentation for troubleshooting guidance: https://help.sonatype.com/repomanager3
-Contact Sonatype support if you encounter issues.
+properties
+Copy code
+# Database Configuration
+nexus-args=${karaf.etc}/jetty.xml,${karaf.etc}/jetty-http.xml,${karaf.etc}/jetty-requestlog.xml
+nexus-edition=nexus-pro-edition
+nexus-features=nexus-pro-feature
+nexus.clustered=false
+database.url=jdbc:postgresql://${PG_HOST}:${PG_PORT}/<your_database>
+database.username=<your_user>
+database.password=<your_password>
+Replace <your_database>, <your_user>, and <your_password> with the PostgreSQL database name, user, and password.
+
+Save Changes:
+
+Save the changes to the nexus.properties file.
+Step 3: Restart Nexus Repository Manager
+Restart Nexus Repository Manager to apply the changes:
+
+bash
+Copy code
+service nexus restart
+Step 4: Verify Configuration
+Check the Nexus logs for any errors during startup:
+
+bash
+Copy code
+tail -f /path/to/nexus/log/nexus.log
+Access the Nexus web interface and verify that it's functioning correctly.
