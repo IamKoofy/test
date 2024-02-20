@@ -12,7 +12,7 @@ pipeline {
                     def pomPath = "${env.workspace}/${env.buildDir}/pom.xml"
 
                     // Update the version in the pom.xml file
-                    sh "sed -i 's/<artifactID>${param.COMPONENT}<\\/artifactID>.*<version>[^<]*<\\/version>/<artifactID>${param.COMPONENT}<\\/artifactID>\\n<version>${version}<\\/version>/' ${pomPath}"
+                    sh "xmlstarlet ed -L -u '//artifactID[text()=\"${param.COMPONENT}\"]/following-sibling::version[1]/text()' -v '${version}' ${pomPath}"
                 }
             }
         }
