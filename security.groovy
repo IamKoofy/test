@@ -11,8 +11,11 @@ pipeline {
                     // Construct the path to the pom.xml file
                     def pomPath = "${env.workspace}/${env.buildDir}/pom.xml"
 
-                    // Update the version in the pom.xml file
-                    sh "sed -i 's|<artifactID>${param.COMPONENT}</artifactID>\\s*<version>.*</version>|<artifactID>${param.COMPONENT}</artifactID>\\n\\t<version>${version}</version>|' ${pomPath}"
+                    // Define the artifact ID for which you want to update the version
+                    def artifactId = "TActions" // or use params.COMPONENT
+
+                    // Update the version in the pom.xml file using sed
+                    sh "sed -i '/<artifactId>${artifactId}<\\/artifactId>/{N;s/<version>1.0.0-SNAPSHOT<\\/version>/<version>${version}<\\/version>/}' ${pomPath}"
                 }
             }
         }
