@@ -51,3 +51,4 @@ pipeline {
         }
     }
 }
+sh "echo ${version} |  jenkins credentials store secret text 'version'  description='Version Information'"
