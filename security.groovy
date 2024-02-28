@@ -36,18 +36,32 @@ stages {
     }
 }
 
-
 pipeline {
     agent any
-
-    withCredentials([string(credentialsId: 'version', variable: 'VERSION')]) {
-                        withCredentials(id: 'version') {
-                            credentialsStore.updateSecretText(credentialsId: 'version', newDescription: 'Version Information', newSecret: version)ION', returnStdout: true).trim()
-                        echo "Version: ${version}"
+    environment {
+        VERSION = ''
+    }
+    stages {
+        stage('Set Version') {
+            steps {
+                script {
+                    // Set the version information
+                    VERSION = '1.0.0' // This can be your git commit + build number
+                }
+            }
+        }
+        stage('Write to Managed File') {
+            steps {
+                script {
+                    // Use configFileProvider to read the version information from the managed file
+                    configFileProvider([configFile(fileId: 'my-version-file', variable: 'VERSION_FILE')]) {
+                        // Inside the block, the content of the managed file is available as an environment variable
+                        def newVersionInfo = "${VERSION_FILE}".replaceFirst(/version:\s*\d+\.\d+\.\d+/, "version: ${VERSION}")
+                        sh "echo '${newVersionInfo}' > ${VERSION_FILE}"
                     }
                 }
             }
         }
     }
 }
-sh "echo ${version} |  jenkins credentials store secret text 'version'  description='Version Information'"
+ store secret text 'version'  description='Version Information'"
