@@ -11,6 +11,9 @@ pipeline {
         }
     }
 }
+
+withCredentials([string(credentialsId: 'version', variable: 'VERSION')]) {
+                        credentialsStore.updateSecretText(credentialsId: 'version', newDescription: 'Version Information', newSecret: version)
 stages {
         stage('Get Version Info') {
             steps {
