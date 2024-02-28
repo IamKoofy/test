@@ -11,3 +11,5 @@ pipeline {
         }
     }
 }
+// version = sh(script: "configFileProvider read custom_version", returnStdout: true).trim()
+                    echo "Version: ${version}"
