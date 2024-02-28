@@ -37,13 +37,9 @@ stages {
 pipeline {
     agent any
 
-    stages {
-        stage('Read Version') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: 'version', passwordVariable: 'VERSION')]) {
-                        // Decrypt and store version
-                        version = sh(script: 'echo \$VERSION | openssl dec -aes-256-cbc -k \$VERSION', returnStdout: true).trim()
+    withCredentials([string(credentialsId: 'version', variable: 'VERSION')]) {
+                        withCredentials(id: 'version') {
+                            credentialsStore.updateSecretText(credentialsId: 'version', newDescription: 'Version Information', newSecret: version)ION', returnStdout: true).trim()
                         echo "Version: ${version}"
                     }
                 }
