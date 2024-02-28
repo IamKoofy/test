@@ -1,22 +1,43 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'component', defaultValue: 'actions', description: 'Component name')
+    }
+
     stages {
-        stage('Build and Update Version') {
+        stage('Clone Repository') {
             steps {
                 script {
-                    // Define the version as GIT+build_number
-                    def version = "${env.GIT_COMMIT}+${env.BUILD_NUMBER}"
-                    
-                    // Construct the path to the pom.xml file
-                    def pomPath = "${env.workspace}/${env.buildDir}/pom.xml"
-
-                    // Define the artifact ID for which you want to update the version
-                    def artifactId = "TActions" // or use params.COMPONENT
-
-                    // Update the version in the pom.xml file using sed
-                    sh "sed -i '/<artifactId>${artifactId}<\\/artifactId>/{N;s/<version>1.0.0-SNAPSHOT<\\/version>/<version>${version}<\\/version>/}' ${pomPath}"
+                    // Clone the repository
+                    git branch: 'main', url: 'https://github.com/your-repository.git'
                 }
+            }
+        }
+
+        stage('Replace Version in pom.xml') {
+            steps {
+                script {
+                    // Define the mapping of component names to version placeholders
+                    def versionMap = [
+                        'actions': '${env.actionsBuildversion}',
+                        'transform': '${env.transformBuildversion}'
+                        // Add more mappings as needed
+                    ]
+
+                    // Get the version placeholder based on the selected component
+                    def versionPlaceholder = versionMap[params.component]
+
+                    // Replace the placeholder with the actual version
+                    sh "sed -i 's|<version>${versionPlaceholder}</version>|<version>${env.actionsBuildversion}</version>|' pom.xml"
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                // Build the project
+                sh 'mvn clean package'
             }
         }
     }
