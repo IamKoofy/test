@@ -11,36 +11,32 @@ pipeline {
         }
     }
 }
-
-withCredentials([string(credentialsId: 'version', variable: 'VERSION')]) {
-                        credentialsStore.updateSecretText(credentialsId: 'version', newDescription: 'Version Information', newSecret: version)
-stages {
-        stage('Get Version Info') {
-            steps {
-                script {
-                    // Get git commit SHA
-                    git commit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                    // Get build number (assuming Jenkins environment variable)
-                    buildNumber = env.BUILD_NUMBER
-
-                    // Combine information and format (adjust as needed)
-                    version = "${commit}-${buildNumber}"
-
-                    // Store version in encrypted credential
-                    withCredentials([usernamePassword(credentialsId: 'version', passwordVariable: 'VERSION')]) {
-                        sh "echo ${version} |  openssl enc -aes-256-cbc -k \$VERSION -a"
-                    }
-                }
-            }
-        }
-    }
-}
-
 pipeline {
     agent any
     environment {
         VERSION = ''
     }
+    stages {
+        stage('Read from Managed File') {
+            steps {
+                script {
+                    // Use configFileProvider to read the version information from the managed file
+                    configFileProvider([configFile(fileId: 'my-version-file', variable: 'VERSION_FILE')]) {
+                        // Inside the block, the content of the managed file is available as an environment variable
+                        VERSION = sh(script: "cat ${VERSION_FILE}", returnStdout: true).trim()
+                    }
+                }
+            }
+        }
+        stage('Use Version') {
+            steps {
+                echo "Version: ${VERSION}"
+                // Use the version information in your pipeline
+            }
+        }
+    }
+}
+
     stages {
         stage('Set Version') {
             steps {
