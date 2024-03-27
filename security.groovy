@@ -29,3 +29,13 @@
     - name: Include tasks based on environment
       include_tasks: "{{ env_var }}.yml"
       when: oc_login_result.rc == 0
+
+
+---
+- name: Run backup script for non-cde-dev environment
+  shell: "bash files/non-cde-dev-backup.sh {{ namespace }} {{ backup_number }} {{ backup_location }}"
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: root
+
