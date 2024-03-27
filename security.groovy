@@ -1,63 +1,31 @@
-pipeline {
-    agent any
-    stages {
-        stage('Read Config File') {
-            steps {
-                script {
-                    def configFile = configFileProvider([configFile(fileId: 'my-config-file', variable: 'CONFIG_FILE')])
-                    echo "Config file path: ${configFile}"
-                }
-            }
-        }
-    }
-}
-pipeline {
-    agent any
-    environment {
-        VERSION = ''
-    }
-    stages {
-        stage('Read from Managed File') {
-            steps {
-                script {
-                    // Use configFileProvider to read the version information from the managed file
-                    configFileProvider([configFile(fileId: 'my-version-file', variable: 'VERSION_FILE')]) {
-                        // Inside the block, the content of the managed file is available as an environment variable
-                        VERSION = sh(script: "cat ${VERSION_FILE}", returnStdout: true).trim()
-                    }
-                }
-            }
-        }
-        stage('Use Version') {
-            steps {
-                echo "Version: ${VERSION}"
-                // Use the version information in your pipeline
-            }
-        }
-    }
-}
+---
+- name: Take OpenShift backups
+  hosts: localhost
+  vars:
+    env_var: "{{ survey_env_var }}"
+    namespace: "{{ survey_namespace }}"
+    backup_number: "{{ survey_backup_number }}"
+    backup_location: "{{ survey_backup_location }}"
+    oc_login_urls:
+      non-cde-dev: "https://oc-non-cde-dev.example.com"
+      cde-dev: "https://oc-cde-dev.example.com"
+      # Add more environments and their URLs as needed
+  tasks:
+    - name: Set OpenShift login URL based on environment
+      set_fact:
+        oc_login_url: "{{ oc_login_urls[env_var] }}"
+      when: oc_login_urls[env_var] is defined
 
-    stages {
-        stage('Set Version') {
-            steps {
-                script {
-                    // Set the version information
-                    VERSION = '1.0.0' // This can be your git commit + build number
-                }
-            }
-        }
-        stage('Write to Managed File') {
-            steps {
-                script {
-                    // Use configFileProvider to read the version information from the managed file
-                    configFileProvider([configFile(fileId: 'my-version-file', variable: 'VERSION_FILE')]) {
-                        // Inside the block, the content of the managed file is available as an environment variable
-                        def newVersionInfo = "${VERSION_FILE}".replaceFirst(/version:\s*\d+\.\d+\.\d+/, "version: ${VERSION}")
-                        sh "echo '${newVersionInfo}' > ${VERSION_FILE}"
-                    }
-                }
-            }
-        }
-    }
-}
- store secret text 'version'  description='Version Information'"
+    - name: Login to OpenShift
+      command: >
+        oc login {{ oc_login_url }} -u {{ survey_oc_username }} -p {{ survey_oc_password }}
+        creates={{ lookup('env','HOME') + '/.kube/cache/openshift-token' }}
+      environment:
+        KUBECONFIG: "{{ lookup('env','HOME') + '/.kube/config' }}"
+      register: oc_login_result
+      ignore_errors: yes
+      changed_when: oc_login_result.rc != 0
+
+    - name: Include tasks based on environment
+      include_tasks: "{{ env_var }}.yml"
+      when: oc_login_result.rc == 0
