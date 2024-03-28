@@ -1,5 +1,5 @@
 ---
-- name: Take OpenShift backups
+- name: Take OpenShift backups and push to Git repo
   hosts: localhost
   vars:
     env_var: "{{ survey_env_var }}"
@@ -10,6 +10,8 @@
       non-cde-dev: "https://oc-non-cde-dev.example.com"
       cde-dev: "https://oc-cde-dev.example.com"
       # Add more environments and their URLs as needed
+    git_repo_url: "https://github.com/yourusername/your-repo.git"
+    git_repo_local_path: "/path/to/local/clone"
   tasks:
     - name: Set OpenShift login URL based on environment
       set_fact:
@@ -30,12 +32,35 @@
       include_tasks: "{{ env_var }}.yml"
       when: oc_login_result.rc == 0
 
+    - name: Create backup folder in local Git repository
+      file:
+        path: "{{ git_repo_local_path }}/backups/{{ namespace }}"
+        state: directory
+      when: oc_login_result.rc == 0
 
----
-- name: Run backup script for non-cde-dev environment
-  shell: "bash files/non-cde-dev-backup.sh {{ namespace }} {{ backup_number }} {{ backup_location }}"
-  args:
-    executable: /bin/bash
-  become: yes
-  become_user: root
+    - name: Copy backup files to local Git repository
+      copy:
+        src: "{{ backup_location }}"
+        dest: "{{ git_repo_local_path }}/backups/{{ namespace }}"
+      when: oc_login_result.rc == 0
 
+    - name: Add changes to Git repository
+      command: >
+        git add .
+      args:
+        chdir: "{{ git_repo_local_path }}"
+      when: oc_login_result.rc == 0
+
+    - name: Commit changes to Git repository
+      command: >
+        git commit -m "Add OpenShift backups"
+      args:
+        chdir: "{{ git_repo_local_path }}"
+      when: oc_login_result.rc == 0
+
+    - name: Push changes to Git repository
+      command: >
+        git push origin master
+      args:
+        chdir: "{{ git_repo_local_path }}"
+      when: oc_login_result.rc == 0
