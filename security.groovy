@@ -1,28 +1,21 @@
+- name: Push backup folder to Git repository
+  git:
+    repo: "{{ github_repo_url }}"
+    dest: "{{ backup_location }}/non-cde-dev/{{ namespace }}/folder_{{ ansible_date_time.iso8601_basic }}"
+    update: yes
+    force: yes  # Optional, force push even if remote updates are ahead
+    branch: master  # Specify the branch to push to, defaults to 'master'
+    key: "{{ lookup('env', 'ANSIBLE_VAULT_PASSWORD_FILE') }}"  # Optional, use a vault password file
+  delegate_to: localhost
+  become: no  # No privilege escalation needed for pushing to Git
+  when: env_var == "non-cde-dev" and oc_login_result.rc == 0
+  register: git_push_result
 
-- name: Gather backup files
-  find:
-    paths: "/tmp/{{ namespace }}/non-cde-dev/backup-1"
-    recurse: yes
-  register: backup_files
-  when: env_var == "non-cde-dev" and oc_login_result.rc == 0
 
-- name: Fetch backup files
-  fetch:
-    src: "/tmp/{{ namespace }}/non-cde-dev/backup-1/{{ item }}"
-    dest: "{{ backup_files_dir }}"
-    flat: yes
-    fail_on_missing: no
-  loop: "{{ query('fileglob', '/tmp/{{ namespace }}/non-cde-dev/backup-1/*') }}"
-  when: env_var == "non-cde-dev" and oc_login_result.rc == 0
-- name: Push backup location to GitHub repository
-  uri:
-    url: "{{ github_repo_url }}/non-cde-dev/backup_{{ namespace }}_{{ ansible_date_time.iso8601_basic }}"
-    method: PUT
-    body: "{{ lookup('file', backup_files_dir + '/' + item.path | basename) }}"
-    headers:
-      Authorization: "Basic {{ github_username }}: {{ github_password }}"
-    status_code: 200
-    validate_certs: no
-    follow_redirects: all
-  with_items: "{{ backup_files.files }}"
-  when: env_var == "non-cde-dev" and oc_login_result.rc == 0
+
+
+- name: Copy backup files to backup directory
+   copy:
+    src: "{{ backup_location }}"
+    dest: "{{ backup_location }}/non-cde-dev/{{ namespace }}/folder_{{ ansible_date_time.iso8601_basic }}"
+   when: env_var == "non-cde-dev" and oc_login_result.rc == 0
