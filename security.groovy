@@ -8,13 +8,12 @@
 
 - name: Fetch backup files
   fetch:
-    src: "{{ item.path }}"
+    src: "/tmp/{{ namespace }}/non-cde-dev/backup-1/{{ item }}"
     dest: "{{ backup_files_dir }}"
     flat: yes
     fail_on_missing: no
-  with_items: "{{ backup_files.files }}"
+  loop: "{{ query('fileglob', '/tmp/{{ namespace }}/non-cde-dev/backup-1/*') }}"
   when: env_var == "non-cde-dev" and oc_login_result.rc == 0
-
 - name: Push backup location to GitHub repository
   uri:
     url: "{{ github_repo_url }}/non-cde-dev/backup_{{ namespace }}_{{ ansible_date_time.iso8601_basic }}"
