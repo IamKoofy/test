@@ -1,59 +1,27 @@
-import requests
+import json
 from openpyxl import Workbook
 
-# Replace with your AWX details
-awx_url = "your_awx_url"
-username = "your_username"
-password = "your_password"
+# Replace with your JSON file path
+json_file = "data.json"
 
-# Authenticate and get the token
-auth_data = {
-    'username': username,
-    'password': password
-}
-response = requests.post(f"{awx_url}/api/v2/tokens/", json=auth_data, headers={'Content-Type': 'application/json'})
-if response.status_code != 200:
-    print(f"Failed to authenticate. Status code: {response.status_code}")
-    print("Check your AWX URL, username, and password.")
-    exit()
+# Open the JSON file
+with open(json_file, "r") as infile:
+    user_data = json.load(infile)
 
-token = response.json().get("token")
-if not token:
-    print("Failed to obtain token.")
-    exit()
-
-# Set the headers for API requests
-headers = {
-    'Authorization': f'Token {token}',
-    'Content-Type': 'application/json'
-}
-
-# Get user list
-response = requests.get(f"{awx_url}/api/v2/users/", headers=headers)
-if response.status_code != 200:
-    print(f"Failed to retrieve user list. Status code: {response.status_code}")
-    exit()
-
-users = response.json().get("results", [])
-
-# Create Excel workbook
+# Create an Excel workbook
 wb = Workbook()
 sheet = wb.active
 
-# Set headers
-sheet.cell(row=1, column=1).value = "Username"
-sheet.cell(row=1, column=2).value = "First Name"
-sheet.cell(row=1, column=3).value = "Last Name"
-sheet.cell(row=1, column=4).value = "Email"
+# Set headers based on user data structure (modify if needed)
+header_row = ["Username", "Email", "First Name", "Last Name"]  # Adjust based on your data keys
+sheet.append(header_row)
 
-# Write user data
-for index, user in enumerate(users, start=2):
-    sheet.cell(row=index, column=1).value = user.get("username", "")
-    sheet.cell(row=index, column=2).value = user.get("first_name", "")  # Handle missing values
-    sheet.cell(row=index, column=3).value = user.get("last_name", "")
-    sheet.cell(row=index, column=4).value = user.get("email", "")
+# Write user data to Excel sheet
+for user in user_data:
+    user_row = [user.get(key, "") for key in header_row]  # Handle potential missing keys
+    sheet.append(user_row)
 
 # Save the Excel file
-wb.save("awx_users.xlsx")
+wb.save("users.xlsx")
 
-print("User list exported to awx_users.xlsx")
+print("User data exported to users.xlsx")
