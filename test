@@ -1,1 +1,36 @@
 
+import requests
+import json
+from openpyxl import Workbook
+
+# AWX Tower URL
+tower_url = "https://your_awx_url/api/v2"
+
+# AWX credentials
+username = "your_username"
+password = "your_password"
+
+# Authenticate and get token
+auth_url = f"{tower_url}/authtoken/"
+auth_data = {"username": username, "password": password}
+response = requests.post(auth_url, json=auth_data)
+token = response.json()["token"]
+
+# Headers with authentication token
+headers = {"Authorization": f"Token {token}"}
+
+# Get users
+users_url = f"{tower_url}/users/"
+response = requests.get(users_url, headers=headers)
+users = response.json()["results"]
+
+# Write users to Excel
+wb = Workbook()
+ws = wb.active
+ws.append(["Username", "Email"])
+
+for user in users:
+    ws.append([user["username"], user["email"]])
+
+wb.save("awx_users.xlsx")
+print("User data saved to awx_users.xlsx")
