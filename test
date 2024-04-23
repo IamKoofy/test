@@ -1,4 +1,4 @@
-from awx.awx import AWX
+import requests
 from openpyxl import Workbook
 
 # Replace with your AWX details
@@ -6,11 +6,25 @@ awx_url = "your_awx_url"
 username = "your_username"
 password = "your_password"
 
-# Connect to AWX
-connection = AWX(url=awx_url, username=username, password=password)
+# Authenticate and get the token
+auth_data = {
+    'username': username,
+    'password': password
+}
+response = requests.post(f"{awx_url}/api/v2/authtoken/", data=auth_data)
+response.raise_for_status()
+token = response.json()["token"]
+
+# Set the headers for API requests
+headers = {
+    'Authorization': f'Token {token}',
+    'Content-Type': 'application/json'
+}
 
 # Get user list
-users = connection.get_all("users")
+response = requests.get(f"{awx_url}/api/v2/users/", headers=headers)
+response.raise_for_status()
+users = response.json()["results"]
 
 # Create Excel workbook
 wb = Workbook()
@@ -23,13 +37,11 @@ sheet.cell(row=1, column=3).value = "Last Name"
 sheet.cell(row=1, column=4).value = "Email"
 
 # Write user data
-row_num = 2
-for user in users:
-    sheet.cell(row=row_num, column=1).value = user["username"]
-    sheet.cell(row=row_num, column=2).value = user.get("first_name", "")  # Handle missing values
-    sheet.cell(row=row_num, column=3).value = user.get("last_name", "")
-    sheet.cell(row=num_row, column=4).value = user.get("email", "")
-    row_num += 1
+for index, user in enumerate(users, start=2):
+    sheet.cell(row=index, column=1).value = user["username"]
+    sheet.cell(row=index, column=2).value = user.get("first_name", "")  # Handle missing values
+    sheet.cell(row=index, column=3).value = user.get("last_name", "")
+    sheet.cell(row=index, column=4).value = user.get("email", "")
 
 # Save the Excel file
 wb.save("awx_users.xlsx")
