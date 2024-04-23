@@ -1,27 +1,24 @@
 import json
 from openpyxl import Workbook
 
-# Replace with your JSON file path
-json_file = "data.json"
+# Load JSON data from file
+with open('users.json', 'r') as json_file:
+    users_data = json.load(json_file)
 
-# Open the JSON file
-with open(json_file, "r") as infile:
-    user_data = json.load(infile)
-
-# Create an Excel workbook
+# Create Excel workbook
 wb = Workbook()
 sheet = wb.active
 
-# Set headers based on user data structure (modify if needed)
-header_row = ["Username", "Email", "First Name", "Last Name"]  # Adjust based on your data keys
-sheet.append(header_row)
+# Set headers
+sheet.cell(row=1, column=1).value = "Username"
+sheet.cell(row=1, column=2).value = "Email"
 
-# Write user data to Excel sheet
-for user in user_data:
-    user_row = [user.get(key, "") for key in header_row]  # Handle potential missing keys
-    sheet.append(user_row)
+# Write user data
+for index, user in enumerate(users_data, start=2):
+    sheet.cell(row=index, column=1).value = user.get("username", "")
+    sheet.cell(row=index, column=2).value = user.get("email", "")
 
 # Save the Excel file
-wb.save("users.xlsx")
+wb.save("awx_users.xlsx")
 
-print("User data exported to users.xlsx")
+print("User list exported to awx_users.xlsx")
