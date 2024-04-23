@@ -12,8 +12,15 @@ auth_data = {
     'password': password
 }
 response = requests.post(f"{awx_url}/api/v2/tokens/", json=auth_data, headers={'Content-Type': 'application/json'})
-response.raise_for_status()
-token = response.json()["token"]
+if response.status_code != 200:
+    print(f"Failed to authenticate. Status code: {response.status_code}")
+    print("Check your AWX URL, username, and password.")
+    exit()
+
+token = response.json().get("token")
+if not token:
+    print("Failed to obtain token.")
+    exit()
 
 # Set the headers for API requests
 headers = {
@@ -23,8 +30,11 @@ headers = {
 
 # Get user list
 response = requests.get(f"{awx_url}/api/v2/users/", headers=headers)
-response.raise_for_status()
-users = response.json()["results"]
+if response.status_code != 200:
+    print(f"Failed to retrieve user list. Status code: {response.status_code}")
+    exit()
+
+users = response.json().get("results", [])
 
 # Create Excel workbook
 wb = Workbook()
@@ -38,7 +48,7 @@ sheet.cell(row=1, column=4).value = "Email"
 
 # Write user data
 for index, user in enumerate(users, start=2):
-    sheet.cell(row=index, column=1).value = user["username"]
+    sheet.cell(row=index, column=1).value = user.get("username", "")
     sheet.cell(row=index, column=2).value = user.get("first_name", "")  # Handle missing values
     sheet.cell(row=index, column=3).value = user.get("last_name", "")
     sheet.cell(row=index, column=4).value = user.get("email", "")
