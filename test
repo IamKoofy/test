@@ -1,24 +1,23 @@
 import json
-from openpyxl import Workbook
+import pandas as pd
 
 # Load JSON data from file
-with open('users.json', 'r') as json_file:
-    users_data = json.load(json_file)
+with open('users.json', 'r') as file:
+    data = json.load(file)
 
-# Create Excel workbook
-wb = Workbook()
-sheet = wb.active
+# Extract relevant information
+user_data = []
+for user in data["results"]:
+    user_data.append({
+        "First Name": user["first_name"],
+        "Last Name": user["last_name"],
+        "Email": user["email"]
+    })
 
-# Set headers
-sheet.cell(row=1, column=1).value = "Username"
-sheet.cell(row=1, column=2).value = "Email"
+# Convert to DataFrame
+df = pd.DataFrame(user_data)
 
-# Write user data
-for index, user in enumerate(users_data, start=2):
-    sheet.cell(row=index, column=1).value = user.get("username", "")
-    sheet.cell(row=index, column=2).value = user.get("email", "")
+# Save to Excel file
+df.to_excel("user_data.xlsx", index=False)
 
-# Save the Excel file
-wb.save("awx_users.xlsx")
-
-print("User list exported to awx_users.xlsx")
+print("Excel file created successfully.")
