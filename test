@@ -1,23 +1,123 @@
-import json
-import pandas as pd
+#!/bin/bash
 
-# Load JSON data from file
-with open('users.json', 'r') as file:
-    data = json.load(file)
+###############################################################
+# Script for Deploying Knative Serving Service to ROSA     #
+# Using inputs from Jenkins environment variables and oc     #
+###############################################################
 
-# Extract relevant information
-user_data = []
-for user in data["results"]:
-    user_data.append({
-        "First Name": user["first_name"],
-        "Last Name": user["last_name"],
-        "Email": user["email"]
-    })
+# Color codes for logging
+red="[PATCH-ERROR] :"
+green="[INFO] :"
+yellow="[WARNING] :"
 
-# Convert to DataFrame
-df = pd.DataFrame(user_data)
+# Global log directory
+GLOBAL_LOG_DIR="/var/log/Knative_Deployment"
+LOG_DIR="${GLOBAL_LOG_DIR}/`basename $0 | cut -d "." -f1`"
+LOG_FILE="${LOG_DIR}/log_file.log"
+TIMESTAMP=`date +"%Y%m%d_%H%M%S"`
 
-# Save to Excel file
-df.to_excel("user_data.xlsx", index=False)
+# Function to display usage and exit
+function usage1 {
+  echo "Usage: `basename $0` -t <token> -p <project> -i <image>"
+  echo "  -t: (Required) Knative Serving API server token"
+  echo "  -p: (Required) Target project name in ROSA"
+  echo "  -i: (Required) Docker image name for the Knative Serving service"
+  exit 100
+}
 
-print("Excel file created successfully.")
+# Function for logging messages
+function LOG {
+  message=${*}
+  echo "${message}" >> "$LOG_FILE"
+}
+
+# Function to handle errors and exit
+function ERROR {
+  message=${*}
+  echo "${message}" >> "$LOG_FILE"
+  exit 200
+}
+
+# Function to check if a project exists in ROSA (optional)
+function Check_For_Project {
+  PROJECT="$1"
+  Project_Count=`oc get project $PROJECT --no-headers | wc -l`
+  echo ${Project_Count}
+}
+
+# Parse command-line arguments (optional, can be removed if not used)
+while getopts t:p:i:h? o; do
+  case "$o" in
+    t) token="$OPTARG";;
+    p) project="$OPTARG";;
+    i) image="$OPTARG";;
+    h | ?) usage1 ; exit 1;;
+  esac
+done
+
+# Validate required arguments
+if [ -z "$token" ]; then
+  LOG "${red} No Knative Serving API server token provided!"
+  exit 1
+fi
+
+if [ -z "$project" ]; then
+  LOG "${red} No target project name provided!"
+  exit 1
+fi
+
+if [ -z "$image" ]; then
+  LOG "${red} No Docker image name provided!"
+  exit 1
+fi
+
+# Create log directory if it doesn't exist
+if [ ! -d "$LOG_DIR" ]; then
+  mkdir -p "$LOG_DIR"
+fi
+
+# Get service name from Jenkins environment variable
+service_name=${SERVICE_NAME}  # Replace with the actual Jenkins environment variable name
+
+# Log script inputs
+LOG "-----------------------------------------------------------"
+LOG "--Inputs Provided Are--"
+LOG "-----------------------------------------------------------"
+LOG "${green} Knative Serving API server token:  $token (REDACTED)"
+LOG "${green} Target project name:               $project"
+LOG "${green} Docker image name:                 $image"
+LOG "${green} Knative service name:             $service_name"
+
+# Check if project exists (optional)
+#if [ "`Check_For_Project <span class="math-inline">\{project\}\`" \-eq 1 \]; then
+\#  LOG "</span>{green} Project <span class="math-inline">\{project\} exists in ROSA\."
+\#else
+\#  LOG "</span>{yellow} Project ${project} not found. Skipping deployment."
+#  exit 1
+#fi
+
+# Build Knative Serving service YAML (replace with your service definition)
+SERVICE_YAML="service.yaml"  # Replace with your actual service definition file
+cat <<EOF > "$SERVICE_YAML"
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: $service_name  # Use the service name from environment variable
+spec:
+  template:
+    spec:
+      containerSpec:
+        image: "<span class="math-inline">image"
+EOF
+\# Deploy Knative Serving service \(using oc\)
+LOG "</span>{green} Deploying Knative service..."
+oc apply -f "$SERVICE_YAML" -n "$project" > /dev/null 2>&1
+if [[ <span class="math-inline">? \-eq 0 \]\]; then
+LOG "</span>{green} Knative service deployed successfully!"
+else
+  LOG "${red} Knative service deployment failed!"
+  ERROR "See $LOG_FILE for details."
+fi
+
+# Clean up temporary service YAML (optional)
+# rm -f "$SERVICE_YAML
