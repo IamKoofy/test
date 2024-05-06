@@ -1,40 +1,61 @@
-check pod status:
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-- name: Check Pod Status
-  k8s_info:
-    api_version: v1
-    kind: Pod
-    namespace: "{{ namespace }}"
-    name: "{{ pod_name }}"
-  register: pod_info
+    <modelVersion>4.0.0</modelVersion>
 
-- name: Debug Pod Info
-  debug:
-    var: pod_info
+    <groupId>com.myorg.sharepoint</groupId>
+    <artifactId>sharepointfascade</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
 
+    <dependencies>
+        <dependency>
+            <groupId>com.microsoft.graph</groupId>
+            <artifactId>microsoft-graph</artifactId>
+            <version>6.7.0</version>
+        </dependency>
+    </dependencies>
 
-- name: Restart Pod
-  k8s:
-    definition:
-      apiVersion: v1
-      kind: Pod
-      metadata:
-        name: "{{ pod_name }}"
-        namespace: "{{ namespace }}"
-      spec:
-        containers:
-        - name: "{{ pod_name }}" 
-    state: restarted
+    <repositories>
+        <repository>
+            <id>central-proxy</id>
+            <name>Central proxy</name>
+            <url>https://my-org.com/repository/maven-central/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
 
+    <pluginRepositories>
+        <!-- Optional: If you use plugins from Maven Central -->
+        <pluginRepository>
+            <id>central-proxy</id>
+            <name>Central proxy for plugins</name>
+            <url>https://my-org.com/repository/maven-central/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </pluginRepository>
+    </pluginRepositories>
 
-- name: Wait for Pod to Be Running
-  wait_for:
-    timeout: "{{ pod_restart_timeout }}"
-    sleep: 5
-    host: "{{ pod_name }}"
-    port: 80
-    state: started
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.5.1</version>
+                <configuration>
+                    <source>1.7</source>
+                    <target>1.7</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
-
-main.yml
-pod_restart_timeout: 300 
+</project>
