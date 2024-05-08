@@ -73,12 +73,13 @@ EOF
 )
 
     LOG "${green} Deploying Knative service..."
-    echo "$KNATIVE_YAML" | oc apply -f - > /dev/null 2>&1
+    deployment_output=$(echo "$KNATIVE_YAML" | oc apply -f - 2>&1)
 
     if [[ $? -eq 0 ]]; then
         LOG "${green} Knative service deployed successfully."
     else
-        LOG "${red} Deployment of Knative service failed."
+        LOG "${red} Deployment of Knative service failed. Error details:"
+        LOG "$deployment_output"
         exit 300
     fi
 }
