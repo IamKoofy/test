@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #####################################################################
-# Script is used for deploying a Knative service in ROSA
+# Script is used for patching the Knative service with a new image
 #####################################################################
 
 red="[PATCH-ERROR] :"
@@ -34,7 +34,7 @@ function ERROR {
     exit
 }
 
-function deploy_knative_service {
+function patch_knative_service {
     TOKEN="$1"
     PROJECT="$2"
     SERVICE_NAME="$3"
@@ -49,37 +49,14 @@ function deploy_knative_service {
         exit 200
     fi
 
-    # Deploy Knative service
-    KNATIVE_YAML=$(cat <<EOF
-apiVersion: serving.knative.dev/v1
-kind: Service
-metadata:
-  name: $SERVICE_NAME
-  namespace: $PROJECT
-  labels:
-    domain: amex
-spec:
-  template:
-    metadata:
-      annotations:
-    spec:
-      containers:
-      - name: $SERVICE_NAME
-        image: $IMAGE
-        env:
-        - name: RESPONSE
-          value: "Hello GBTTEAM!"
-EOF
-)
-
-    LOG "${green} Deploying Knative service..."
-    deployment_output=$(echo "$KNATIVE_YAML" | oc apply -f - 2>&1)
+    # Patch Knative service with the new image
+    LOG "${green} Patching Knative service with the new image..."
+    oc patch svc/${SERVICE_NAME} -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"user-container\",\"image\":\"$IMAGE\"}]}}}}" -n ${PROJECT} > /dev/null 2>&1
 
     if [[ $? -eq 0 ]]; then
-        LOG "${green} Knative service deployed successfully."
+        LOG "${green} Knative service patched successfully with the new image."
     else
-        LOG "${red} Deployment of Knative service failed. Error details:"
-        LOG "$deployment_output"
+        LOG "${red} Patching Knative service failed."
         exit 300
     fi
 }
@@ -115,4 +92,4 @@ LOG "${green} Project name is ----> ${project}"
 LOG "${green} Service name is ----> ${service_name}"
 LOG "${green} Image name is ----> ${image}"
 
-deploy_knative_service "$token" "$project" "$service_name" "$image"
+patch_knative_service "$token" "$project" "$service_name" "$image"
