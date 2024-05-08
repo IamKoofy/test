@@ -51,14 +51,24 @@ function deploy_knative_service {
 
     # Deploy Knative service
     KNATIVE_YAML=$(cat <<EOF
+apiVersion: serving.knative.dev/v1
+kind: Service
 metadata:
   name: $SERVICE_NAME
   namespace: $PROJECT
+  labels:
+    domain: amex
 spec:
   template:
+    metadata:
+      annotations:
     spec:
       containers:
-        - image: $IMAGE
+      - name: $SERVICE_NAME
+        image: $IMAGE
+        env:
+        - name: RESPONSE
+          value: "Hello GBTTEAM!"
 EOF
 )
 
