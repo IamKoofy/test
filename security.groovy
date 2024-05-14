@@ -8,11 +8,6 @@ red="[PATCH-ERROR] :"
 green="[INFO] :"
 yellow="[WARNING] :"
 
-GLOBAL_LOG_DIR="/var/log/Ose_Custom/Log"
-LOG_DIR="${GLOBAL_LOG_DIR}/$(basename "$0" | cut -d "." -f1)"
-LOG_FILE="${LOG_DIR}/log_file.log"
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-
 function usage1 {
     echo "Usage : $(basename "$0")"
     echo "To run the script, the following fields are mandatory:"
@@ -26,13 +21,11 @@ function usage1 {
 function LOG {
     message="$*"
     echo "${message}"
-    echo "$(date +"%Y-%m-%d %T") - ${message}" >> "$LOG_FILE"
 }
 
 function ERROR {
     message="$*"
-    echo "${message}"
-    echo "$(date +"%Y-%m-%d %T") - ${message}" >> "$LOG_FILE"
+    echo "${red}${message}" >&2
     exit
 }
 
@@ -45,15 +38,13 @@ function patch_knative_service {
     # Login to OpenShift cluster
     LOG "${green} Logging in to OpenShift cluster..."
     oc login https://api.dev.ii6q.p1.openshiftapps.com:6443 --token="$TOKEN" --insecure-skip-tls-verify > /dev/null 2>&1 || {
-        ERROR "${red} Failed to log in to OpenShift cluster"
-        exit 200
+        ERROR "Failed to log in to OpenShift cluster"
     }
 
     # Patch Knative service with the new image
     LOG "${green} Patching Knative service with the new image..."
     oc patch svc/"${SERVICE_NAME}" -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"user-container\",\"image\":\"$IMAGE\"}]}}}}" -n "${PROJECT}" > /dev/null 2>&1 || {
-        ERROR "${red} Patching Knative service failed."
-        exit 300
+        ERROR "Patching Knative service failed."
     }
 
     LOG "${green} Knative service patched successfully with the new image."
@@ -70,17 +61,13 @@ while getopts "t:n:s:i:" opt; do
 done
 
 if [ -z "$token" ]; then
-    ERROR "${red} No Token is provided, exiting the script"
-    exit 400
+    ERROR "No Token is provided, exiting the script"
 elif [ -z "$project" ]; then
-    ERROR "${red} No Project Name is provided, exiting the script"
-    exit 400
+    ERROR "No Project Name is provided, exiting the script"
 elif [ -z "$service_name" ]; then
-    ERROR "${red} No Service Name is provided, exiting the script"
-    exit 400
+    ERROR "No Service Name is provided, exiting the script"
 elif [ -z "$image" ]; then
-    ERROR "${red} No Image name is provided, exiting the script"
-    exit 400
+    ERROR "No Image name is provided, exiting the script"
 fi
 
 LOG "----------------------------------------------------------- ------------"
