@@ -26,11 +26,13 @@ function usage1 {
 function LOG {
     message="$*"
     echo "${message}"
+    echo "$(date +"%Y-%m-%d %T") - ${message}" >> "$LOG_FILE"
 }
 
 function ERROR {
     message="$*"
     echo "${message}"
+    echo "$(date +"%Y-%m-%d %T") - ${message}" >> "$LOG_FILE"
     exit
 }
 
@@ -42,54 +44,4 @@ function patch_knative_service {
 
     # Login to OpenShift cluster
     LOG "${green} Logging in to OpenShift cluster..."
-    oc login https://api.dev.ii6q.p1.openshiftapps.com:6443 --token="$TOKEN" --insecure-skip-tls-verify > /dev/null 2>&1
-
-    if [[ $? -ne 0 ]]; then
-        LOG "${red} Failed to log in to OpenShift cluster"
-        exit 200
-    fi
-
-    # Patch Knative service with the new image
-    LOG "${green} Patching Knative service with the new image..."
-    oc patch svc/${SERVICE_NAME} -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"user-container\",\"image\":\"$IMAGE\"}]}}}}" -n ${PROJECT} > /dev/null 2>&1
-
-    if [[ $? -eq 0 ]]; then
-        LOG "${green} Knative service patched successfully with the new image."
-    else
-        LOG "${red} Patching Knative service failed."
-        exit 300
-    fi
-}
-
-while getopts "t:n:s:i:" opt; do
-    case $opt in
-        t) token="$OPTARG";;
-        n) project="$OPTARG";;
-        s) service_name="$OPTARG";;
-        i) image="$OPTARG";;
-        [?] | h | help ) usage1; exit 1;;
-    esac
-done
-
-if [ -z "$token" ]; then
-    LOG "${red} No Token is provided, exiting the script"
-    exit 400
-elif [ -z "$project" ]; then
-    LOG "${red} No Project Name is provided, exiting the script"
-    exit 400
-elif [ -z "$service_name" ]; then
-    LOG "${red} No Service Name is provided, exiting the script"
-    exit 400
-elif [ -z "$image" ]; then
-    LOG "${red} No Image name is provided, exiting the script"
-    exit 400
-fi
-
-LOG "----------------------------------------------------------- ------------"
-LOG "-- Inputs Provided Are --"
-LOG "----------------------------------------------------------- ------------"
-LOG "${green} Project name is ----> ${project}"
-LOG "${green} Service name is ----> ${service_name}"
-LOG "${green} Image name is ----> ${image}"
-
-patch_knative_service "$token" "$project" "$service_name" "$image"
+    oc login https://api.dev.ii6q.p1.openshiftapps.com:6443 --token="$T
