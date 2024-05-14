@@ -43,7 +43,7 @@ function patch_knative_service {
 
     # Patch Knative service with the new image
     LOG "${green} Patching Knative service with the new image..."
-    oc patch svc/"${SERVICE_NAME}" -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"user-container\",\"image\":\"$IMAGE\"}]}}}}" -n "${PROJECT}" > /dev/null 2>&1 || {
+    kn service update "${SERVICE_NAME}" --image="${IMAGE}" -n "${PROJECT}" > /dev/null 2>&1 || {
         ERROR "Patching Knative service failed."
     }
 
