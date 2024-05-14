@@ -41,10 +41,17 @@ function patch_knative_service {
         ERROR "Failed to log in to OpenShift cluster"
     }
 
-    # Patch Knative service with the new image
-    LOG "${green} Patching Knative service with the new image..."
-    kn service update "${SERVICE_NAME}" --image="${IMAGE}" -n "${PROJECT}" > /dev/null 2>&1 || {
-        ERROR "Patching Knative service failed."
+    # Get the current service revision
+    CURRENT_REVISION=$(kubectl get revision -l serving.knative.dev/service="$SERVICE_NAME" -o jsonpath='{.items[0].metadata.name}')
+
+    if [ -z "$CURRENT_REVISION" ]; then
+        ERROR "Failed to retrieve current service revision"
+    fi
+
+    # Patch the revision with the new image
+    LOG "${green} Patching Knative service revision with the new image..."
+    kubectl patch revision "$CURRENT_REVISION" --type merge -p="{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"image\":\"$IMAGE\"}]}}}}" > /dev/null 2>&1 || {
+        ERROR "Patching Knative service revision failed."
     }
 
     LOG "${green} Knative service patched successfully with the new image."
