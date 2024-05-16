@@ -5,6 +5,10 @@
 # Using inputs from Jenkins environment variables and oc     #
 ###############################################################
 
+ChromeOptions options = new ChromeOptions();
+options.addArguments("--headless", "--no-sandbox", "--disable-dev-shm-usage", "--user-data-dir=/tmp/headless_chrome_profile");
+this.browserDriver = new ChromeDriver(options);
+
 # Color codes for logging
 red="[PATCH-ERROR] :"
 green="[INFO] :"
