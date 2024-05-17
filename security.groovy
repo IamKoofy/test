@@ -42,46 +42,9 @@ function patch_knative_service {
     }
 
     # Get the current service revision
-    CURRENT_REVISION=$(kubectl get revision -l serving.knative.dev/service="$SERVICE_NAME" -o jsonpath='{.items[0].metadata.name}')
-
+    LOG "${green} Retrieving current service revision..."
+    CURRENT_REVISION=$(kubectl get revision -l serving.knative.dev/service="$SERVICE_NAME" -n "$PROJECT" -o jsonpath='{.items[0].metadata.name}')
+    
     if [ -z "$CURRENT_REVISION" ]; then
         ERROR "Failed to retrieve current service revision"
-    fi
-
-    # Patch the revision with the new image
-    LOG "${green} Patching Knative service revision with the new image..."
-    kubectl patch revision "$CURRENT_REVISION" --type merge -p="{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"image\":\"$IMAGE\"}]}}}}" > /dev/null 2>&1 || {
-        ERROR "Patching Knative service revision failed."
-    }
-
-    LOG "${green} Knative service patched successfully with the new image."
-}
-
-while getopts "t:n:s:i:" opt; do
-    case $opt in
-        t) token="$OPTARG";;
-        n) project="$OPTARG";;
-        s) service_name="$OPTARG";;
-        i) image="$OPTARG";;
-        [?] | h | help ) usage1; exit 1;;
-    esac
-done
-
-if [ -z "$token" ]; then
-    ERROR "No Token is provided, exiting the script"
-elif [ -z "$project" ]; then
-    ERROR "No Project Name is provided, exiting the script"
-elif [ -z "$service_name" ]; then
-    ERROR "No Service Name is provided, exiting the script"
-elif [ -z "$image" ]; then
-    ERROR "No Image name is provided, exiting the script"
-fi
-
-LOG "----------------------------------------------------------- ------------"
-LOG "-- Inputs Provided Are --"
-LOG "----------------------------------------------------------- ------------"
-LOG "${green} Project name is ----> ${project}"
-LOG "${green} Service name is ----> ${service_name}"
-LOG "${green} Image name is ----> ${image}"
-
-patch_knative_service "$token" "$project" "$service_name" "$image"
+   
