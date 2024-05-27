@@ -1,127 +1,31 @@
-#!/bin/bash
-
-###############################################################
-# Script for Deploying Knative Serving Service to ROSA     #
-# Using inputs from Jenkins environment variables and oc     #
-###############################################################
-
-ChromeOptions options = new ChromeOptions();
-options.addArguments("--headless", "--no-sandbox", "--disable-dev-shm-usage", "--user-data-dir=/tmp/headless_chrome_profile");
-this.browserDriver = new ChromeDriver(options);
-
-# Color codes for logging
-red="[PATCH-ERROR] :"
-green="[INFO] :"
-yellow="[WARNING] :"
-
-# Global log directory
-GLOBAL_LOG_DIR="/var/log/Knative_Deployment"
-LOG_DIR="${GLOBAL_LOG_DIR}/`basename $0 | cut -d "." -f1`"
-LOG_FILE="${LOG_DIR}/log_file.log"
-TIMESTAMP=`date +"%Y%m%d_%H%M%S"`
-
-# Function to display usage and exit
-function usage1 {
-  echo "Usage: `basename $0` -t <token> -p <project> -i <image>"
-  echo "  -t: (Required) Knative Serving API server token"
-  echo "  -p: (Required) Target project name in ROSA"
-  echo "  -i: (Required) Docker image name for the Knative Serving service"
-  exit 100
-}
-
-# Function for logging messages
-function LOG {
-  message=${*}
-  echo "${message}" >> "$LOG_FILE"
-}
-
-# Function to handle errors and exit
-function ERROR {
-  message=${*}
-  echo "${message}" >> "$LOG_FILE"
-  exit 200
-}
-
-# Function to check if a project exists in ROSA (optional)
-function Check_For_Project {
-  PROJECT="$1"
-  Project_Count=`oc get project $PROJECT --no-headers | wc -l`
-  echo ${Project_Count}
-}
-
-# Parse command-line arguments (optional, can be removed if not used)
-while getopts t:p:i:h? o; do
-  case "$o" in
-    t) token="$OPTARG";;
-    p) project="$OPTARG";;
-    i) image="$OPTARG";;
-    h | ?) usage1 ; exit 1;;
-  esac
-done
-
-# Validate required arguments
-if [ -z "$token" ]; then
-  LOG "${red} No Knative Serving API server token provided!"
-  exit 1
-fi
-
-if [ -z "$project" ]; then
-  LOG "${red} No target project name provided!"
-  exit 1
-fi
-
-if [ -z "$image" ]; then
-  LOG "${red} No Docker image name provided!"
-  exit 1
-fi
-
-# Create log directory if it doesn't exist
-if [ ! -d "$LOG_DIR" ]; then
-  mkdir -p "$LOG_DIR"
-fi
-
-# Get service name from Jenkins environment variable
-service_name=${SERVICE_NAME}  # Replace with the actual Jenkins environment variable name
-
-# Log script inputs
-LOG "-----------------------------------------------------------"
-LOG "--Inputs Provided Are--"
-LOG "-----------------------------------------------------------"
-LOG "${green} Knative Serving API server token:  $token (REDACTED)"
-LOG "${green} Target project name:               $project"
-LOG "${green} Docker image name:                 $image"
-LOG "${green} Knative service name:             $service_name"
-
-# Check if project exists (optional)
-#if [ "`Check_For_Project <span class="math-inline">\{project\}\`" \-eq 1 \]; then
-\#  LOG "</span>{green} Project <span class="math-inline">\{project\} exists in ROSA\."
-\#else
-\#  LOG "</span>{yellow} Project ${project} not found. Skipping deployment."
-#  exit 1
-#fi
-
-# Build Knative Serving service YAML (replace with your service definition)
-SERVICE_YAML="service.yaml"  # Replace with your actual service definition file
-cat <<EOF > "$SERVICE_YAML"
-apiVersion: serving.knative.dev/v1
-kind: Service
-metadata:
-  name: $service_name  # Use the service name from environment variable
-spec:
-  template:
-    spec:
-      containerSpec:
-        image: "<span class="math-inline">image"
-EOF
-\# Deploy Knative Serving service \(using oc\)
-LOG "</span>{green} Deploying Knative service..."
-oc apply -f "$SERVICE_YAML" -n "$project" > /dev/null 2>&1
-if [[ <span class="math-inline">? \-eq 0 \]\]; then
-LOG "</span>{green} Knative service deployed successfully!"
-else
-  LOG "${red} Knative service deployment failed!"
-  ERROR "See $LOG_FILE for details."
-fi
-
-# Clean up temporary service YAML (optional)
-# rm -f "$SERVICE_YAML
+post {
+        success {
+            // Publish HTML Report
+            publishHTML (target: [
+                allowMissing: false,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'path/to/report',
+                reportFiles: 'index.html',
+                reportName: 'HTML Report'
+            ])
+            
+            // Send email with link to HTML Report
+            emailext (
+                subject: "Build Successful: ${currentBuild.fullDisplayName}",
+                body: """
+                <p>Build was successful!</p>
+                <p>View the <a href="${BUILD_URL}HTML_Report/">HTML Report</a></p>
+                """,
+                to: 'recipient@example.com'
+            )
+        }
+        failure {
+            // Send email on failure
+            emailext (
+                subject: "Build Failed: ${currentBuild.fullDisplayName}",
+                body: """
+                <p>Build failed. Please check the Jenkins logs.</p>
+                """,
+                to: 'recipient@example.com'
+            )
