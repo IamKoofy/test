@@ -1,5 +1,8 @@
 post {
-        success {
+        always {
+            // Archive HTML Report
+            archiveArtifacts artifacts: 'path/to/report/**', allowEmptyArchive: true
+            
             // Publish HTML Report
             publishHTML (target: [
                 allowMissing: false,
@@ -9,17 +12,21 @@ post {
                 reportFiles: 'index.html',
                 reportName: 'HTML Report'
             ])
-            
-            // Send email with link to HTML Report
+        }
+        
+        success {
+            // Send email with link to the archived HTML Report
             emailext (
                 subject: "Build Successful: ${currentBuild.fullDisplayName}",
                 body: """
                 <p>Build was successful!</p>
-                <p>View the <a href="${BUILD_URL}HTML_Report/">HTML Report</a></p>
+                <p>View the <a href="${BUILD_URL}artifact/path/to/report/index.html">HTML Report</a></p>
                 """,
+                mimeType: 'text/html',
                 to: 'recipient@example.com'
             )
         }
+        
         failure {
             // Send email on failure
             emailext (
@@ -27,5 +34,9 @@ post {
                 body: """
                 <p>Build failed. Please check the Jenkins logs.</p>
                 """,
+                mimeType: 'text/html',
                 to: 'recipient@example.com'
             )
+        }
+    }
+}
