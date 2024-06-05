@@ -43,8 +43,53 @@ function patch_knative_service {
 
     # Get the current service revision
     LOG "${green} Retrieving current service revision..."
-    CURRENT_REVISION=$(kubectl get revision -l serving.knative.dev/service="$SERVICE_NAME" -n "$PROJECT" -o jsonpath='{.items[0].metadata.name}')
+    CURRENT_REVISION=$(kn service list -n "$PROJECT" | grep "$SERVICE_NAME" | awk '{print $1}')
     
     if [ -z "$CURRENT_REVISION" ]; then
         ERROR "Failed to retrieve current service revision"
-   
+    fi
+    
+    LOG "${green} Current Revision: ${CURRENT_REVISION}"
+    LOG "${green} Current Revision YAML:"
+    kn revision get "$CURRENT_REVISION" -n "$PROJECT" -o yaml
+
+    # Update the service with the new image
+    LOG "${green} Updating Knative service with the new image..."
+    kn service update "$SERVICE_NAME" --image "$IMAGE" -n "$PROJECT" > /dev/null 2>&1 || {
+        ERROR "Updating Knative service failed."
+    }
+
+    LOG "${green} Knative service updated successfully with the new image."
+    
+    LOG "${green} Updated Service YAML:"
+    kn service get "$SERVICE_NAME" -n "$PROJECT" -o yaml
+}
+
+while getopts "t:n:s:i:" opt; do
+    case $opt in
+        t) token="$OPTARG";;
+        n) project="$OPTARG";;
+        s) service_name="$OPTARG";;
+        i) image="$OPTARG";;
+        [?] | h | help ) usage1; exit 1;;
+    esac
+done
+
+if [ -z "$token" ]; then
+    ERROR "No Token is provided, exiting the script"
+elif [ -z "$project" ]; then
+    ERROR "No Project Name is provided, exiting the script"
+elif [ -z "$service_name" ]; then
+    ERROR "No Service Name is provided, exiting the script"
+elif [ -z "$image" ]; then
+    ERROR "No Image name is provided, exiting the script"
+fi
+
+LOG "----------------------------------------------------------- ------------"
+LOG "-- Inputs Provided Are --"
+LOG "----------------------------------------------------------- ------------"
+LOG "${green} Project name is ----> ${project}"
+LOG "${green} Service name is ----> ${service_name}"
+LOG "${green} Image name is ----> ${image}"
+
+patch_knative_service "$token" "$project" "$service_name" "$image"
