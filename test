@@ -1,42 +1,102 @@
-post {
-        always {
-            // Archive HTML Report
-            archiveArtifacts artifacts: 'path/to/report/**', allowEmptyArchive: true
-            
-            // Publish HTML Report
-            publishHTML (target: [
-                allowMissing: false,
-                alwaysLinkToLastBuild: true,
-                keepAll: true,
-                reportDir: 'path/to/report',
-                reportFiles: 'index.html',
-                reportName: 'HTML Report'
-            ])
-        }
-        
-        success {
-            // Send email with link to the archived HTML Report
-            emailext (
-                subject: "Build Successful: ${currentBuild.fullDisplayName}",
-                body: """
-                <p>Build was successful!</p>
-                <p>View the <a href="${BUILD_URL}artifact/path/to/report/index.html">HTML Report</a></p>
-                """,
-                mimeType: 'text/html',
-                to: 'recipient@example.com'
-            )
-        }
-        
-        failure {
-            // Send email on failure
-            emailext (
-                subject: "Build Failed: ${currentBuild.fullDisplayName}",
-                body: """
-                <p>Build failed. Please check the Jenkins logs.</p>
-                """,
-                mimeType: 'text/html',
-                to: 'recipient@example.com'
-            )
-        }
-    }
-}
+- name: Take backup of all namespaces
+  hosts: localhost
+  vars:
+    env_var: "{{ survey_env_var }}"
+    backup_number: "{{ survey_backup_number }}"
+    backup_location: "{{ survey_backup_location }}"
+    github_repo_url: "https://git.gbt.gbtad.com/gbt-devops/ePaaS-Backup.git"
+    github_username: "{{ github_username }}"
+    github_password: "{{ github_password }}"
+    git_url: "https://{{ github_username | urlencode }}:{{ github_password | urlencode }}@git.gbt.gbtad.com/gbt-devops/ePaaS-Backup.git"
+    oc_login_urls:
+      non-cde-dev: "https://a6q.p1.openshiftapps.com:6443/"
+      non-cde-qa: "https://acs59.p1.openshiftapps.com:6443/"
+      non-cde-prod: "https://as.d2yp.p1.openshiftapps.com:6443/"
+      cde-dev: "https://api.sf.p1.openshiftapps.com:6443/"
+      cde-qa: "https://api.sqeo.p1.openshiftapps.com:6443/"
+      cde-prod: "https://api3i.p1.openshiftapps.com:6443/"
+  tasks:
+    - name: Set OpenShift login URL based on environment
+      set_fact:
+        oc_login_url: "{{ oc_login_urls[env_var] }}"
+      when: oc_login_urls[env_var] is defined
+
+    - name: Login to OpenShift
+      command: >
+        oc login {{ oc_login_url }} --token={{ token }}
+      register: oc_login_result
+      ignore_errors: yes
+      changed_when: oc_login_result.rc != 0
+
+    - name: Get all namespaces
+      command: oc get namespaces -o json
+      register: namespaces_json
+      when: oc_login_result.rc == 0
+
+    - name: Parse namespaces JSON
+      set_fact:
+        namespaces: "{{ namespaces_json.stdout | from_json | json_query('items[*].metadata.name') }}"
+      when: oc_login_result.rc == 0
+
+    - name: Loop through each namespace
+      include_tasks: backup_namespace.yml
+      loop: "{{ namespaces }}"
+      loop_control:
+        loop_var: namespace
+      when: oc_login_result.rc == 0
+
+
+
+
+
+
+
+- name: Set backup directory for the namespace
+  set_fact:
+    backup_dir: "{{ backup_location }}/{{ namespace }}/Backup-{{ backup_number }}"
+
+- name: Run the backup script for the namespace
+  command: /path/to/backup_script.sh {{ namespace }} {{ backup_dir }}
+  environment:
+    NAMESPACE: "{{ namespace }}"
+    BACKUP_DIR: "{{ backup_dir }}"
+
+- name: Rename backup directory
+  command: mv "{{ backup_dir }}" "/tmp/{{ namespace }}_backup_{{ ansible_date_time.iso8601_basic }}"
+
+- name: Push renamed backup folder to Git repository
+  shell: |
+    ls -ltrh
+    git clone "{{ git_url }}"
+    ls -ltrh
+    git config --global user.name "{{ github_username }}"
+    git config --global user.email "{{ github_username }}@test.com"
+    cd ePaaS-Backup
+    # Define the directory structure based on env_var
+    if [ "{{ env_var }}" == "non-cde-dev" ]; then
+      dir="non_cde/dev/{{ namespace }}"
+    elif [ "{{ env_var }}" == "non-cde-qa" ]; then
+      dir="non_cde/qa/{{ namespace }}"
+    elif [ "{{ env_var }}" == "non-cde-prod" ]; then
+      dir="non_cde/prod/{{ namespace }}"
+    elif [ "{{ env_var }}" == "cde-dev" ]; then
+      dir="cde/dev/{{ namespace }}"
+    elif [ "{{ env_var }}" == "cde-qa" ]; then
+      dir="cde/qa/{{ namespace }}"
+    elif [ "{{ env_var }}" == "cde-prod" ]; then
+      dir="cde/prod/{{ namespace }}"
+    else
+      dir=""
+    fi
+    # Create directory if not exists
+    if [ ! -d "$dir" ]; then
+      mkdir -p "$dir"
+    fi
+    cp -r "/tmp/{{ namespace }}_backup_{{ ansible_date_time.iso8601_basic }}" "$dir"
+    git add .
+    git commit -m "Backup commit for {{ namespace }}"
+    git push -u origin main
+  no_log: true
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
