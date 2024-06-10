@@ -26,7 +26,7 @@ function LOG {
 function ERROR {
     message="$*"
     echo "${red}${message}" >&2
-    exit
+    exit 1
 }
 
 function patch_knative_service {
@@ -41,28 +41,36 @@ function patch_knative_service {
         ERROR "Failed to log in to OpenShift cluster"
     }
 
-    # Get the current service revision
-    LOG "${green} Retrieving current service revision..."
-    CURRENT_REVISION=$(kn service list -n "$PROJECT" | grep "$SERVICE_NAME" | awk '{print $1}')
-    
-    if [ -z "$CURRENT_REVISION" ]; then
-        ERROR "Failed to retrieve current service revision"
-    fi
-    
-    LOG "${green} Current Revision: ${CURRENT_REVISION}"
-    LOG "${green} Current Revision YAML:"
-    kn revision get "$CURRENT_REVISION" -n "$PROJECT" -o yaml
-
     # Update the service with the new image
     LOG "${green} Updating Knative service with the new image..."
     kn service update "$SERVICE_NAME" --image "$IMAGE" -n "$PROJECT" > /dev/null 2>&1 || {
         ERROR "Updating Knative service failed."
     }
 
-    LOG "${green} Knative service updated successfully with the new image."
-    
-    LOG "${green} Updated Service YAML:"
-    kn service get "$SERVICE_NAME" -n "$PROJECT" -o yaml
+    LOG "${green} Knative service update command executed."
+
+    # Wait for the new revision to be ready
+    LOG "${green} Waiting for the new revision to be ready..."
+    TIMEOUT=300  # 5 minutes
+    INTERVAL=10
+    ELAPSED=0
+
+    while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+        REVISION_STATUS=$(kn service describe "$SERVICE_NAME" -n "$PROJECT" -o=jsonpath='{.status.latestCreatedRevisionName}')
+        if [ -n "$REVISION_STATUS" ]; then
+            READY_CONDITION=$(kubectl get revision "$REVISION_STATUS" -n "$PROJECT" -o=jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+            if [ "$READY_CONDITION" == "True" ]; then
+                LOG "${green} Knative service patched successfully with the new image."
+                LOG "${green} Patched Service YAML:"
+                kubectl get service.serving.knative.dev "$SERVICE_NAME" -n "$PROJECT" -o yaml
+                exit 0
+            fi
+        fi
+        sleep "$INTERVAL"
+        ELAPSED=$((ELAPSED + INTERVAL))
+    done
+
+    ERROR "Patching Knative service failed or timed out."
 }
 
 while getopts "t:n:s:i:" opt; do
@@ -85,11 +93,4 @@ elif [ -z "$image" ]; then
     ERROR "No Image name is provided, exiting the script"
 fi
 
-LOG "----------------------------------------------------------- ------------"
-LOG "-- Inputs Provided Are --"
-LOG "----------------------------------------------------------- ------------"
-LOG "${green} Project name is ----> ${project}"
-LOG "${green} Service name is ----> ${service_name}"
-LOG "${green} Image name is ----> ${image}"
-
-patch_knative_service "$token" "$project" "$service_name" "$image"
+LOG "
