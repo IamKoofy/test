@@ -1,4 +1,4 @@
- python_interpreter: "{{ lookup('pipe', 'command -v python3') or lookup('pipe', 'command -v python') or '/usr/bin/python3' }}"
+        namespaces: "{{ namespaces_json.stdout | from_json | map(attribute='metadata.name') }}"
   vars:
     env_var: "{{ survey_env_var }}"
     backup_number: "{{ survey_backup_number }}"
