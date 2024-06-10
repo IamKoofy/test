@@ -41,17 +41,29 @@ function patch_knative_service {
         ERROR "Failed to log in to OpenShift cluster"
     }
 
-    # Update the service with the new image
+    # Update the service with the new image with a timeout mechanism
     LOG "${green} Updating Knative service with the new image..."
-    kn service update "$SERVICE_NAME" --image "$IMAGE" -n "$PROJECT" > /dev/null 2>&1 || {
-        ERROR "Updating Knative service failed."
-    }
+    TIMEOUT=60  # Timeout after 60 seconds
+    { kn service update "$SERVICE_NAME" --image "$IMAGE" -n "$PROJECT" > /dev/null 2>&1; } &
+    PID=$!
+    SECONDS=0
+    while kill -0 $PID 2> /dev/null; do
+        if [ $SECONDS -ge $TIMEOUT ]; then
+            kill -9 $PID
+            ERROR "Updating Knative service timed out."
+        fi
+        sleep 1
+    done
 
-    LOG "${green} Knative service update command executed."
+    if wait $PID; then
+        LOG "${green} Knative service update command executed."
+    else
+        ERROR "Updating Knative service failed."
+    fi
 
     # Allow some time for the new revision to start
-    TIMEOUT=60  # 1 minute
-    sleep "$TIMEOUT"
+    SLEEP_TIME=30  # 30 seconds
+    sleep "$SLEEP_TIME"
 
     # Check the status of the new revision
     REVISION_STATUS=$(kn revision list -n "$PROJECT" -o=jsonpath='{.items[0].metadata.name}')
