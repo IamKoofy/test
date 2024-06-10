@@ -49,28 +49,25 @@ function patch_knative_service {
 
     LOG "${green} Knative service update command executed."
 
-    # Wait for the new revision to be ready
-    LOG "${green} Waiting for the new revision to be ready..."
-    TIMEOUT=300  # 5 minutes
-    INTERVAL=10
-    ELAPSED=0
+    # Allow some time for the new revision to start
+    TIMEOUT=60  # 1 minute
+    sleep "$TIMEOUT"
 
-    while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-        REVISION_STATUS=$(kn service describe "$SERVICE_NAME" -n "$PROJECT" -o=jsonpath='{.status.latestCreatedRevisionName}')
-        if [ -n "$REVISION_STATUS" ]; then
-            READY_CONDITION=$(kubectl get revision "$REVISION_STATUS" -n "$PROJECT" -o=jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
-            if [ "$READY_CONDITION" == "True" ]; then
-                LOG "${green} Knative service patched successfully with the new image."
-                LOG "${green} Patched Service YAML:"
-                kubectl get service.serving.knative.dev "$SERVICE_NAME" -n "$PROJECT" -o yaml
-                exit 0
-            fi
+    # Check the status of the new revision
+    REVISION_STATUS=$(kn service describe "$SERVICE_NAME" -n "$PROJECT" -o=jsonpath='{.status.latestCreatedRevisionName}')
+    if [ -n "$REVISION_STATUS" ]; then
+        READY_CONDITION=$(kubectl get revision "$REVISION_STATUS" -n "$PROJECT" -o=jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+        if [ "$READY_CONDITION" == "True" ]; then
+            LOG "${green} Knative service patched successfully with the new image."
+            LOG "${green} Patched Service YAML:"
+            kubectl get service.serving.knative.dev "$SERVICE_NAME" -n "$PROJECT" -o yaml
+            exit 0
+        else
+            ERROR "New revision is not ready."
         fi
-        sleep "$INTERVAL"
-        ELAPSED=$((ELAPSED + INTERVAL))
-    done
-
-    ERROR "Patching Knative service failed or timed out."
+    else
+        ERROR "Failed to retrieve new revision status."
+    fi
 }
 
 while getopts "t:n:s:i:" opt; do
