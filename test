@@ -1,18 +1,14 @@
-- name: Parse namespaces JSON and extract names
+    - name: Get all namespaces
+      command: oc get namespaces -o json
+      register: namespaces_json
+      when: oc_login_result.rc == 0
+
+    - name: Parse namespaces JSON manually
       set_fact:
-        namespaces: "{{ namespaces_json.stdout | from_json | json_parse }}"
+        namespaces_list: "{{ namespaces_json.stdout | from_json }}"
       when: oc_login_result.rc == 0
 
-    - name: Loop through each namespace
-      include_tasks: backup_namespace.yml
-      loop: "{{ namespaces }}"
-      loop_control:
-        loop_var: namespace
+    - name: Extract namespace names
+      set_fact:
+        namespaces: "{{ namespaces_list.items | map(attribute='metadata.name') | list }}"
       when: oc_login_result.rc == 0
-
-  vars:
-    json_parse: >
-      {{
-        namespaces_json.stdout | from_json | dict2items | selectattr('key', 'equalto', 'items') | map(attribute='value') | map('extract', attribute='metadata.name')
-      }}
-Explanation
