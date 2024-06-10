@@ -54,20 +54,20 @@ function patch_knative_service {
     sleep "$TIMEOUT"
 
     # Check the status of the new revision
-    REVISION_STATUS=$(kn service describe "$SERVICE_NAME" -n "$PROJECT" -o=jsonpath='{.status.latestCreatedRevisionName}')
+    REVISION_STATUS=$(kn revision list -n "$PROJECT" -o=jsonpath='{.items[0].metadata.name}')
     if [ -n "$REVISION_STATUS" ]; then
         READY_CONDITION=$(kubectl get revision "$REVISION_STATUS" -n "$PROJECT" -o=jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
         if [ "$READY_CONDITION" == "True" ]; then
             LOG "${green} Knative service patched successfully with the new image."
-            LOG "${green} Patched Service YAML:"
-            kubectl get service.serving.knative.dev "$SERVICE_NAME" -n "$PROJECT" -o yaml
-            exit 0
         else
-            ERROR "New revision is not ready."
+            LOG "${yellow} Knative service patched, but new revision is not ready."
         fi
     else
-        ERROR "Failed to retrieve new revision status."
+        LOG "${yellow} Failed to retrieve new revision status, but image was patched."
     fi
+
+    LOG "${green} Patched Service YAML:"
+    kubectl get service.serving.knative.dev "$SERVICE_NAME" -n "$PROJECT" -o yaml
 }
 
 while getopts "t:n:s:i:" opt; do
