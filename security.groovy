@@ -93,4 +93,11 @@ elif [ -z "$image" ]; then
     ERROR "No Image name is provided, exiting the script"
 fi
 
-LOG "
+LOG "----------------------------------------------------------- ------------"
+LOG "-- Inputs Provided Are --"
+LOG "----------------------------------------------------------- ------------"
+LOG "${green} Project name is ----> ${project}"
+LOG "${green} Service name is ----> ${service_name}"
+LOG "${green} Image name is ----> ${image}"
+
+patch_knative_service "$token" "$project" "$service_name" "$image"
