@@ -1,112 +1,37 @@
-#!/bin/bash
+Signing in to AAP after Switching from LDAP to Okta Integration
+This guide outlines the steps for logging in to AAP after the platform transitioned from using LDAP to Okta for user authentication.
 
-#####################################################################
-# Script is used for patching the Knative service with a new image
-#####################################################################
+Prerequisites:
 
-red="[PATCH-ERROR] :"
-green="[INFO] :"
-yellow="[WARNING] :"
+An active account in Okta, your organization's identity provider.
+Knowledge of your Okta username and password (same credentials used for other Okta-integrated applications).
+Steps:
 
-function usage1 {
-    echo "Usage : $(basename "$0")"
-    echo "To run the script, the following fields are mandatory:"
-    echo "  -t <token value>"
-    echo "  -n <project name>"
-    echo "  -s <service name>"
-    echo "  -i <image name>"
-    exit 100
-}
+Open your web browser.
 
-function LOG {
-    message="$*"
-    echo "${message}"
-}
+Navigate to the AAP login page. (Replace <AAP_login_URL> with the actual login URL for your AAP platform).
 
-function ERROR {
-    message="$*"
-    echo "${red}${message}" >&2
-    exit 1
-}
+Example: <AAP_login_URL>
+You will be redirected to the Okta login page. This signifies the use of Okta for authentication.
 
-function patch_knative_service {
-    TOKEN="$1"
-    PROJECT="$2"
-    SERVICE_NAME="$3"
-    IMAGE="$4"
+Enter your Okta username in the designated field.
 
-    # Login to OpenShift cluster
-    LOG "${green} Logging in to OpenShift cluster..."
-    oc login https://api.dev.ii6q.p1.openshiftapps.com:6443 --token="$TOKEN" --insecure-skip-tls-verify > /dev/null 2>&1 || {
-        ERROR "Failed to log in to OpenShift cluster"
-    }
+Enter your Okta password in the designated field.
 
-    # Update the service with the new image with a timeout mechanism
-    LOG "${green} Updating Knative service with the new image..."
-    TIMEOUT=60  # Timeout after 60 seconds
-    { kn service update "$SERVICE_NAME" --image "$IMAGE" -n "$PROJECT" > /dev/null 2>&1; } &
-    PID=$!
-    SECONDS=0
-    while kill -0 $PID 2> /dev/null; do
-        if [ $SECONDS -ge $TIMEOUT ]; then
-            kill -9 $PID
-            ERROR "Updating Knative service timed out."
-        fi
-        sleep 1
-    done
+Click "Sign In" or press Enter on your keyboard.
 
-    if wait $PID; then
-        LOG "${green} Knative service update command executed."
-    else
-        ERROR "Updating Knative service failed."
-    fi
+Okta may perform additional verification steps depending on your organization's security settings. These might include multi-factor authentication (MFA) prompts. Follow the on-screen instructions to complete the verification process.
 
-    # Allow some time for the new revision to start
-    SLEEP_TIME=30  # 30 seconds
-    sleep "$SLEEP_TIME"
+Upon successful authentication, you will be automatically redirected back to AAP. You should now be logged in to the platform with your assigned permissions.
 
-    # Check the status of the new revision
-    REVISION_STATUS=$(kn revision list -n "$PROJECT" -o=jsonpath='{.items[0].metadata.name}')
-    if [ -n "$REVISION_STATUS" ]; then
-        READY_CONDITION=$(kubectl get revision "$REVISION_STATUS" -n "$PROJECT" -o=jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
-        if [ "$READY_CONDITION" == "True" ]; then
-            LOG "${green} Knative service patched successfully with the new image."
-        else
-            LOG "${yellow} Knative service patched, but new revision is not ready."
-        fi
-    else
-        LOG "${yellow} Failed to retrieve new revision status, but image was patched."
-    fi
+Additional Notes:
 
-    LOG "${green} Patched Service YAML:"
-    kubectl get service.serving.knative.dev "$SERVICE_NAME" -n "$PROJECT" -o yaml
-}
+If you encounter any difficulties logging in, contact your AAP administrator for assistance.
+You should continue using the same username and password you use for other Okta-integrated applications within your organization.
+If you haven't already, familiarize yourself with Okta's single sign-on (SSO) capabilities. SSO allows you to seamlessly access multiple applications using your Okta credentials without logging in repeatedly.
+Benefits of Switching to Okta:
 
-while getopts "t:n:s:i:" opt; do
-    case $opt in
-        t) token="$OPTARG";;
-        n) project="$OPTARG";;
-        s) service_name="$OPTARG";;
-        i) image="$OPTARG";;
-        [?] | h | help ) usage1; exit 1;;
-    esac
-done
-
-if [ -z "$token" ]; then
-    ERROR "No Token is provided, exiting the script"
-elif [ -z "$project" ]; then
-    ERROR "No Project Name is provided, exiting the script"
-elif [ -z "$service_name" ]; then
-    ERROR "No Service Name is provided, exiting the script"
-elif [ -z "$image" ]; then
-    ERROR "No Image name is provided, exiting the script"
-fi
-
-LOG "----------------------------------------------------------- ------------"
-LOG "-- Inputs Provided Are --"
-LOG "----------------------------------------------------------- ------------"
-LOG "${green} Project name is ----> ${project}"
-LOG "${green} Service name is ----> ${service_name}"
-LOG "${green} Image name is ----> ${image}"
-
-patch_knative_service "$token" "$project" "$service_name" "$image"
+Centralized User Management: Okta simplifies user management by providing a single point of access for all your organization's applications.
+Enhanced Security: Okta offers robust security features like multi-factor authentication to protect your account.
+Improved User Experience: Okta streamlines the login process with SSO, eliminating the need to manage multiple login credentials.
+We hope this guide assists you with a smooth transition to Okta-based authentication for AAP. If you have any further questions, don't hesitate to reach out to your AAP administrator.
