@@ -1,37 +1,56 @@
-Signing in to AAP after Switching from LDAP to Okta Integration
-This guide outlines the steps for logging in to AAP after the platform transitioned from using LDAP to Okta for user authentication.
+#!/bin/bash
+# Shell Script to trigger alert if the exception match string is found in logs within the last 5 minutes
 
-Prerequisites:
+EXCEPTION_LOG_PATH=$1
+EXCEPTION_STRING=$2
+THRESHOLD=$3
+EXCEPTION_LOGFILE=$4
+INTERVAL=${5:-5}  # Default to 5 minutes if not provided
+POD_NAME=$6
 
-An active account in Okta, your organization's identity provider.
-Knowledge of your Okta username and password (same credentials used for other Okta-integrated applications).
-Steps:
+# Calculate time-related variables
+sub_min="-${INTERVAL} min"
+tim_cur=$(date "+%Y-%m-%d %H:%M:%S")
+tim_dif=$(date "+%Y-%m-%d %H:%M:%S" -d "$sub_min")
 
-Open your web browser.
+# Initialize a variable to track if the exception was found
+EXCEPTION_FOUND=false
 
-Navigate to the AAP login page. (Replace <AAP_login_URL> with the actual login URL for your AAP platform).
+# Loop through the latest 4 log files in the specified directory
+for LOGFILE in $(find "$EXCEPTION_LOG_PATH/$POD_NAME" -name "$EXCEPTION_LOGFILE" -type f -exec ls -t1 {} + | head -4)
+do
+    echo "Checking logs in file: $LOGFILE"
+    # Extract the records based on the timestamp within the specified time range
+    nrec=$(awk -v tim_dif="$tim_dif" -v tim_cur="$tim_cur" '
+        {
+            if ($0 ~ /[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}/) {
+                timestamp = substr($0, 1, 19)
+                if (timestamp >= tim_dif && timestamp <= tim_cur) {
+                    print NR
+                    exit
+                }
+            }
+        }
+    ' "$LOGFILE")
 
-Example: <AAP_login_URL>
-You will be redirected to the Okta login page. This signifies the use of Okta for authentication.
+    # Check if there are any records found
+    if [ -n "$nrec" ]; then
+        # Count the number of exceptions within the specified time range
+        EXCEPTION_COUNT=$(awk -v strec="$nrec" -v exception_string="$EXCEPTION_STRING" 'NR >= strec && /exception_string/ { count++ } END { print count }' "$LOGFILE")
 
-Enter your Okta username in the designated field.
+        # Set EXCEPTION_FOUND to true if the exception count is greater than or equal to the threshold
+        if [ "$EXCEPTION_COUNT" -ge "$THRESHOLD" ]; then
+            EXCEPTION_FOUND=true
+            break
+        fi
+    fi
+done
 
-Enter your Okta password in the designated field.
-
-Click "Sign In" or press Enter on your keyboard.
-
-Okta may perform additional verification steps depending on your organization's security settings. These might include multi-factor authentication (MFA) prompts. Follow the on-screen instructions to complete the verification process.
-
-Upon successful authentication, you will be automatically redirected back to AAP. You should now be logged in to the platform with your assigned permissions.
-
-Additional Notes:
-
-If you encounter any difficulties logging in, contact your AAP administrator for assistance.
-You should continue using the same username and password you use for other Okta-integrated applications within your organization.
-If you haven't already, familiarize yourself with Okta's single sign-on (SSO) capabilities. SSO allows you to seamlessly access multiple applications using your Okta credentials without logging in repeatedly.
-Benefits of Switching to Okta:
-
-Centralized User Management: Okta simplifies user management by providing a single point of access for all your organization's applications.
-Enhanced Security: Okta offers robust security features like multi-factor authentication to protect your account.
-Improved User Experience: Okta streamlines the login process with SSO, eliminating the need to manage multiple login credentials.
-We hope this guide assists you with a smooth transition to Okta-based authentication for AAP. If you have any further questions, don't hesitate to reach out to your AAP administrator.
+# Output the result for Ansible playbook to capture
+if [ "$EXCEPTION_FOUND" == true ]; then
+    echo "ALERT: $EXCEPTION_STRING found $EXCEPTION_COUNT times in the last $INTERVAL minutes."
+    exit 0
+else
+    echo "NO_ALERT: $EXCEPTION_STRING not found or less than $THRESHOLD times in the log files within the last $INTERVAL minutes."
+    exit 1
+fi
