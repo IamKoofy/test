@@ -1,56 +1,60 @@
-#!/bin/bash
-# Shell Script to trigger alert if the exception match string is found in logs within the last 5 minutes
+---
+- name: Handle Freshworks Incident
+  hosts: localhost
+  gather_facts: no
 
-EXCEPTION_LOG_PATH=$1
-EXCEPTION_STRING=$2
-THRESHOLD=$3
-EXCEPTION_LOGFILE=$4
-INTERVAL=${5:-5}  # Default to 5 minutes if not provided
-POD_NAME=$6
+  vars:
+    # Mapping environment to the respective API endpoints
+    api_endpoints:
+      dev: "https://dev.api.example.com:8001/go/rest/gacmd/v1/webusers/"
+      qa: "https://qa.api.example.com:8001/go/rest/gacmd/v1/webusers/"
+      prod: "https://prod.api.example.com:8001/go/rest/gacmd/v1/webusers/"
 
-# Calculate time-related variables
-sub_min="-${INTERVAL} min"
-tim_cur=$(date "+%Y-%m-%d %H:%M:%S")
-tim_dif=$(date "+%Y-%m-%d %H:%M:%S" -d "$sub_min")
+  tasks:
+    - name: Parse incident details
+      set_fact:
+        environment: "{{ incident.environment | lower }}"
+        action: "{{ incident.action | lower }}"
+        username: "{{ incident.username }}"
 
-# Initialize a variable to track if the exception was found
-EXCEPTION_FOUND=false
+    - name: Validate input
+      fail:
+        msg: "Invalid environment '{{ environment }}' provided."
+      when: api_endpoints[environment] is not defined
 
-# Loop through the latest 4 log files in the specified directory
-for LOGFILE in $(find "$EXCEPTION_LOG_PATH/$POD_NAME" -name "$EXCEPTION_LOGFILE" -type f -exec ls -t1 {} + | head -4)
-do
-    echo "Checking logs in file: $LOGFILE"
-    # Extract the records based on the timestamp within the specified time range
-    nrec=$(awk -v tim_dif="$tim_dif" -v tim_cur="$tim_cur" '
-        {
-            if ($0 ~ /[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}/) {
-                timestamp = substr($0, 1, 19)
-                if (timestamp >= tim_dif && timestamp <= tim_cur) {
-                    print NR
-                    exit
-                }
+    - name: Set API endpoint
+      set_fact:
+        api_url: "{{ api_endpoints[environment] }}{{ username }}"
+
+    - name: Prepare payload for unlock/lock
+      set_fact:
+        payload: >
+          {{
+            {
+              "enabled": "true" if action == "unlock" else "false"
             }
-        }
-    ' "$LOGFILE")
+          }}
 
-    # Check if there are any records found
-    if [ -n "$nrec" ]; then
-        # Count the number of exceptions within the specified time range
-        EXCEPTION_COUNT=$(awk -v strec="$nrec" -v exception_string="$EXCEPTION_STRING" 'NR >= strec && /exception_string/ { count++ } END { print count }' "$LOGFILE")
+    - name: Get API credentials
+      set_fact:
+        api_user: "{{ lookup('env', 'API_USER') }}"
+        api_pass: "{{ lookup('env', 'API_PASS') }}"
 
-        # Set EXCEPTION_FOUND to true if the exception count is greater than or equal to the threshold
-        if [ "$EXCEPTION_COUNT" -ge "$THRESHOLD" ]; then
-            EXCEPTION_FOUND=true
-            break
-        fi
-    fi
-done
+    - name: Encode credentials
+      set_fact:
+        basic_auth: "{{ api_user }}:{{ api_pass }} | b64encode }}"
 
-# Output the result for Ansible playbook to capture
-if [ "$EXCEPTION_FOUND" == true ]; then
-    echo "ALERT: $EXCEPTION_STRING found $EXCEPTION_COUNT times in the last $INTERVAL minutes."
-    exit 0
-else
-    echo "NO_ALERT: $EXCEPTION_STRING not found or less than $THRESHOLD times in the log files within the last $INTERVAL minutes."
-    exit 1
-fi
+    - name: Call API to unlock/lock account
+      uri:
+        url: "{{ api_url }}"
+        method: PUT
+        body: "{{ payload | to_json }}"
+        headers:
+          Authorization: "Basic {{ basic_auth }}"
+          Content-Type: "application/json"
+        status_code: [200, 201, 204]
+      register: api_result
+
+    - name: Handle API response
+      debug:
+        msg: "User {{ username }} has been {{ action }}ed successfully in {{ environment }} environment."
