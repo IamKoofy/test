@@ -1,5 +1,4 @@
----
-- name: Unlock user accounts via GoAPI
+- name: Unlock or lock user accounts via GoAPI
   hosts: localhost
   gather_facts: no
   vars:
@@ -19,13 +18,23 @@
             'https://dev.aoapi.myaxt.com:8001/go/rest/gacmd/v1/webusers/' + username
           }}
 
-    - name: Unlock the user account
+    - name: Set payload for unlock action
+      set_fact:
+        payload: >-
+          {{
+            {'enabled': true}
+            if action == 'unlock'
+            else
+            {'enabled': false}
+          }}
+
+    - name: Perform the action on the user account
       uri:
         url: "{{ api_url }}"
         method: PUT
         user: "{{ api_user }}"
         password: "{{ api_password }}"
-        body: "{{ lookup('file', 'templates/unlock_account.json') | format(username=username) }}"
+        body: "{{ payload | to_json }}"
         headers:
           Content-Type: "application/json"
         status_code: 200
