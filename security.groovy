@@ -1,91 +1,52 @@
-variables:
-  - name: BuildParameters.ArtifactName
-    value: drop
-  - name: BuildPlatform
-    value: 'Any CPU'
-  - name: BuildConfiguration
-    value: 'Release'
-  - name: Build.BuildId
-    value: $(date:yyyyMMdd)$(rev:.r)
+- name: Get incidents from filter view
+  uri:
+    url: "https://test.freshservice.com/helpdesk/tickets/view/1000098988?format=json"
+    method: GET
+    headers:
+      Authorization: "Bearer YOUR_API_KEY"
+    return_content: yes
+    status_code: 200
+  register: incidents_response
 
-resources:
-  repositories:
-    - repository: self
-      type: github
-      name: CLOUD/your-repo-name
-      ref: refs/heads/main # Adjust branch as needed
-      endpoint: your-github-service-connection
+- name: Parse incident IDs from response
+  set_fact:
+    incident_ids: "{{ incidents_response.json | map(attribute='display_id') | list }}"
+  when: incidents_response.json | length > 0
 
-jobs:
-  - job: Job_1
-    displayName: Agent job 1
-    pool:
-      name: main-build-pool
 
-    steps:
-      - checkout: self
 
-      - task: SonarQubePrepare@5
-        displayName: Prepare analysis on SonarQube
-        enabled: False
-        inputs:
-          SonarQube: 1ecdfa54-774a-4892-81fd-4d31642bc912
-          projectKey: gbt-apac-PAM
-          projectName: gbt-apac-PAM
 
-      - task: NuGetCommand@2
-        displayName: NuGet restore
-        inputs:
-          solution: PAM.sln
-          selectOrConfig: config
-          nugetConfigPath: nuget.config
-          externalEndpoints: 9d6b3432-5c32-4a0e-8620-9a06ff19f0d8
 
-      - task: VSBuild@1
-        displayName: Build solution
-        inputs:
-          solution: PAM.sln
-          msbuildArgs: /p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:PackageLocation="$(build.artifactstagingdirectory)\\"
-          platform: $(BuildPlatform)
-          configuration: $(BuildConfiguration)
 
-      - task: VSTest@2
-        displayName: Test Assemblies
-        inputs:
-          testAssemblyVer2: >-
-            **\$(BuildConfiguration)\*test*.dll
-            !**\obj\**
-          platform: $(BuildPlatform)
-          configuration: $(BuildConfiguration)
+- name: Loop through incidents to gather details
+  set_fact:
+    incident_info_list: []
 
-      - task: SonarQubeAnalyze@5
-        displayName: Run Code Analysis
-        enabled: False
+- name: Get details for each incident
+  uri:
+    url: "https://test.freshservice.com/api/v2/tickets/{{ item }}/requested_items"
+    method: GET
+    headers:
+      Authorization: "Bearer YOUR_API_KEY"
+    return_content: yes
+    status_code: 200
+  with_items: "{{ incident_ids }}"
+  register: ticket_details
 
-      - task: SonarQubePublish@5
-        displayName: Publish Quality Gate Result
-        enabled: False
+- name: Parse account_name, Environment, and platform for each incident
+  set_fact:
+    incident_info_list: "{{ incident_info_list + [{ 'incident_id': item.item, 'account_name': item.json.requested_items.account_name, 'environment': item.json.requested_items.environment, 'platform': item.json.requested_items.platform }] }}"
+  with_items: "{{ ticket_details.results }}"
 
-      - task: PublishSymbols@2
-        displayName: Publish symbols path
-        continueOnError: True
-        inputs:
-          SearchPattern: '**\bin\**\*.pdb'
-          PublishSymbols: false
-          SymbolServerType: TeamServices
 
-      - task: Application security testing@2021
-        displayName: Application security testing
-        enabled: False
-        inputs:
-          projectName: ABM-MASTER
-          CheckmarxService: 6ac90be7-3609-417a-bd5f-da024882fa3b
-          fullTeamName: CxServer\SP\Company\Users\GG-APACAPPTEAMCHECKMARX
 
-      - task: PublishBuildArtifacts@1
-        displayName: Publish Artifact
-        condition: succeededOrFailed()
-        inputs:
-          PathtoPublish: $(build.artifactstagingdirectory)
-          ArtifactName: $(BuildParameters.ArtifactName)
-          TargetPath: '\\my\share\$(Build.DefinitionName)\$(Build.BuildNumber)'
+
+
+
+- name: Trigger AWX template if incidents are found
+  awx_job_template:
+    template: "Unlock Accounts"
+    organization: "Your Org"
+    extra_vars:
+      incident_info_list: "{{ incident_info_list }}"
+  when: incident_ids | length > 0
