@@ -3,14 +3,20 @@ pipeline {
 
     parameters {
         choice(name: 'JAVA_VERSION', choices: ['java17', 'java18', 'java21'], description: 'Select the Java Version')
+        string(name: 'BUILD_VERSION', defaultValue: '1.0.${BUILD_NUMBER}', description: 'Version of the Build')
+        string(name: 'ARTIFACT_ID', defaultValue: 'Secret_Component', description: 'Artifact ID')
+        string(name: 'GROUP_ID', defaultValue: 'org.test', description: 'Group ID')
     }
 
     environment {
-        REPO_FOLDER = "${params.JAVA_VERSION}" // Folder in Nexus based on selected version
+        NEXUS_URL = 'http://nexus.yourdomain.com'  // Replace with actual Nexus URL
+        NEXUS_REPO = 'maven-test'
+        REPO_FOLDER = "${params.JAVA_VERSION}"
+        ARTIFACT_PATH = "secret_component/org/test/${params.JAVA_VERSION}"
     }
 
     stages {
-        stage('GitCheckOut') {
+        stage('Git Checkout') {
             steps {
                 echo "*** Checking out Code from GitHub ***"
                 git branch: 'main', credentialsId: 'CCOE-GitHub-Service-Account', url: 'https://github.com/test/cco-java.git'
@@ -23,6 +29,9 @@ pipeline {
                     echo "*** Updating pom.xml with selected Java version ***"
                     sh "sed -i 's/<maven.compiler.source>.*</<maven.compiler.source>${params.JAVA_VERSION.replace('java', '')}</g' Secret_Component_Java/pom.xml"
                     sh "sed -i 's/<maven.compiler.target>.*</<maven.compiler.target>${params.JAVA_VERSION.replace('java', '')}</g' Secret_Component_Java/pom.xml"
+                    sh "sed -i 's/<artifactId>.*</<artifactId>${params.ARTIFACT_ID}</g' Secret_Component_Java/pom.xml"
+                    sh "sed -i 's/<groupId>.*</<groupId>${params.GROUP_ID}</g' Secret_Component_Java/pom.xml"
+                    sh "sed -i 's/<version>.*</<version>${params.BUILD_VERSION}</g' Secret_Component_Java/pom.xml"
                 }
             }
         }
@@ -38,28 +47,26 @@ pipeline {
             }
         }
 
-        stage('Sonar Scan') {
+        stage('Publish to Nexus') {
             steps {
                 dir("Secret_Component_Java") {
                     script {
-                        echo "*** Analysing Code using SonarQube Skipped ***"
+                        echo "*** Publishing to Nexus Repository ***"
+                        nexusPublisher nexusInstanceId: 'nexus', nexusRepositoryId: "${env.NEXUS_REPO}", packages: [
+                            [$class: 'MavenPackage', mavenAssetList: [
+                                [classifier: '', extension: 'jar', filePath: "target/${params.ARTIFACT_ID}-${params.BUILD_VERSION}.jar"]
+                            ], mavenCoordinate: [artifactId: "${params.ARTIFACT_ID}", groupId: "${params.GROUP_ID}", packaging: 'jar', version: "${params.BUILD_VERSION}"]]
+                        ]
                     }
                 }
             }
         }
 
-        stage('Publish to Nexus Repository Manager') {
+        stage('Move Artifact to Folder') {
             steps {
-                dir("Secret_Component_Java") {
-                    script {
-                        echo "*** Publishing to Nexus Repository based on Java version ***"
-                        def destinationPath = "org/test/${REPO_FOLDER}"
-                        nexusPublisher nexusInstanceId: 'nexus', nexusRepositoryId: 'maven-test', packages: [
-                            [$class: 'MavenPackage', mavenAssetList: [
-                                [classifier: '', extension: '', filePath: "target/Secret_Component-1.0.3.jar"]
-                            ], mavenCoordinate: [artifactId: 'secret-component', groupId: "secret_component.${destinationPath}", packaging: 'jar', version: "${BUILD_NUMBER}"]]
-                        ], tagName: 'ccoe-secret-component'
-                    }
+                script {
+                    echo "*** Moving artifact to ${ARTIFACT_PATH} ***"
+                    sh "curl -u username:password --upload-file target/${params.ARTIFACT_ID}-${params.BUILD_VERSION}.jar ${NEXUS_URL}/repository/${NEXUS_REPO}/${ARTIFACT_PATH}/"
                 }
             }
         }
