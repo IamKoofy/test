@@ -6,7 +6,7 @@ pipeline {
     }
 
     environment {
-        JAVA_VERSION_NUM = "${params.JAVA_VERSION.replace('java', '')}" // Numeric version for POM and Nexus path
+        REPO_FOLDER = "${params.JAVA_VERSION}" // Folder in Nexus based on selected version
     }
 
     stages {
@@ -21,8 +21,8 @@ pipeline {
             steps {
                 script {
                     echo "*** Updating pom.xml with selected Java version ***"
-                    sh "sed -i 's/<maven.compiler.source>.*</<maven.compiler.source>${JAVA_VERSION_NUM}</g' Secret_Component_Java/pom.xml"
-                    sh "sed -i 's/<maven.compiler.target>.*</<maven.compiler.target>${JAVA_VERSION_NUM}</g' Secret_Component_Java/pom.xml"
+                    sh "sed -i 's/<maven.compiler.source>.*</<maven.compiler.source>${params.JAVA_VERSION.replace('java', '')}</g' Secret_Component_Java/pom.xml"
+                    sh "sed -i 's/<maven.compiler.target>.*</<maven.compiler.target>${params.JAVA_VERSION.replace('java', '')}</g' Secret_Component_Java/pom.xml"
                 }
             }
         }
@@ -53,18 +53,12 @@ pipeline {
                 dir("Secret_Component_Java") {
                     script {
                         echo "*** Publishing to Nexus Repository based on Java version ***"
-                        def filePath = "target/Secret_Component-${BUILD_NUMBER}.jar" // Artifact file path
-                        def mavenCoordinate = [artifactId: 'secret-component', groupId: 'secret_component.org.test', packaging: 'jar', version: "${BUILD_NUMBER}"]
-
-                        // Define Nexus path based on Java version
-                        def nexusPath = "java-${JAVA_VERSION_NUM}/secret-component/${BUILD_NUMBER}/"
-
+                        def destinationPath = "org/test/${REPO_FOLDER}"
                         nexusPublisher nexusInstanceId: 'nexus', nexusRepositoryId: 'maven-test', packages: [
                             [$class: 'MavenPackage', mavenAssetList: [
-                                [classifier: '', extension: 'jar', filePath: filePath]
-                            ], mavenCoordinate: mavenCoordinate]
+                                [classifier: '', extension: '', filePath: "target/Secret_Component-1.0.3.jar"]
+                            ], mavenCoordinate: [artifactId: 'secret-component', groupId: "secret_component.${destinationPath}", packaging: 'jar', version: "${BUILD_NUMBER}"]]
                         ], tagName: 'ccoe-secret-component'
-                        echo "*** Successfully published ${filePath} to ${nexusPath} folder in Nexus Repository ***"
                     }
                 }
             }
