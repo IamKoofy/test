@@ -1,3 +1,10 @@
-environment: "{{ ticket_data.json.requested_items[0].custom_fields.environment }}"
-    platform: "{{ ticket_data.json.requested_items[0].custom_fields.platform }}"
-    account_name_to_be_unlocked: "{{ ticket_data.json.requested_items[0].custom_fields.account_name_to_be_unlocked }}"
+{{
+        ticket_data.results[0].json.requested_items |
+        map(attribute='custom_fields') |
+        map(lambda cf: {
+          'environment': cf.environment,
+          'platform': cf.platform,
+          'account_name_to_be_unlocked': cf.account_name_to_be_unlocked
+        }) |
+        list
+      }}
