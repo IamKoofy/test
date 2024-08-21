@@ -1,4 +1,5 @@
-accounts_info: "{{ ticket_data.requested_items | 
-      map(attribute='custom_fields') | 
-      map(dict(cluster=.custom_fields.environment, username=.custom_fields.account_name_to_be_unlocked, action='unlock')) | 
+accounts_info: "{{ ticket_data.results |
+      map(attribute='json.requested_items') |
+      map('extract', ['custom_fields.environment', 'custom_fields.platform', 'custom_fields.account_name_to_be_unlocked']) |
+      map(dict(cluster=item.environment ?? '', username=item.platform ?? '', action='unlock')) |
       list }}"
