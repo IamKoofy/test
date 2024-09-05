@@ -1,44 +1,49 @@
-parameters:
-  - name: MajorVersion
-    type: string
-  - name: MinorVersion
-    type: string
-  - name: BuildNumber
-    type: string
-  - name: Rev
-    type: string
+task-groups/version-use-buildnumber.taskgroup.yml:
+
+- name: MajorVersion
+  type: string
+
+- name: MinorVersion
+  type: string
+
+- name: BuildNumber
+  type: string
+
+# Rev is no longer needed since we won't include it
+#- name: Rev
+#  type: string
 
 steps:
-  - task: PowerShell@2
-    displayName: 'Version Build'
-    inputs:
-      targetType: 'inline'
-      script: |
-        Write-Host "Versioning based on the following:"
-        Write-Host "Major: ${{ parameters.MajorVersion }}, Minor: ${{ parameters.MinorVersion }}, Build: ${{ parameters.BuildNumber }}"
 
-        $majorVersion = "${{ parameters.MajorVersion }}"
-        $minorVersion = "${{ parameters.MinorVersion }}"
-        $buildNumber = "${{ parameters.BuildNumber }}"
+- task: PowerShell@2
+  displayName: 'Version Build'
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "Versioning based on the following:-"
+      Write-Host "MajorVersion: $(MajorVersion)"
+      Write-Host "MinorVersion: $(MinorVersion)"
+      Write-Host "BuildNumber: $(BuildNumber)"
 
-        # Update the version using NBGV
-        .\nbgv cloud --version "$majorVersion.$minorVersion.$buildNumber"
+      $version = "$(MajorVersion).$(MinorVersion).$(BuildNumber)"
 
-        # Update .NET assemblies
-        Write-Host "Searching for .NET assemblies..."
-        $files = Get-ChildItem $(Build.SourcesDirectory) -Recurse -Include @("*Properties*", "*My Project*") | 
-                 Where-Object { $_.PSIsContainer } | 
-                 ForEach-Object { Get-ChildItem -Path $_.FullName -Recurse -Include AssemblyInfo.* }
+      # Regex to find and update version numbers in AssemblyInfo or other version files
+      $versionRegex = "\d+\.\d+\.\d+"
 
-        if ($files.Count -gt 0) {
-          Write-Host "Applying $env:BUILD_BUILDNUMBER to the following file(s):"
-          foreach ($file in $files) {
-            $filecontent = Get-Content($file.FullName)
-            Set-ItemProperty -Path $file.FullName -Name IsReadOnly -Value $false
-            $filecontent -replace "\d+\.\d+\.\d+\.\d+", "$env:BUILD_BUILDNUMBER" | Out-File $file.FullName
-            Write-Host "`t$file.FullName"
-          }
-        } else {
-          Write-Host "No files found."
+      # Update the .NET assemblies with the new version number
+      Write-Host "Searching for .NET assemblies ..."
+      $files = gci $(Build.SourcesDirectory) -Recurse -Include @("*Properties*", "*My Project*") | 
+               ?{$_.PSIsContainer} | 
+               foreach { gci -Path $_.FullName -Recurse -Include AssemblyInfo.* }
+
+      if ($files.count -gt 0) {
+        Write-Host "Applying $version to the following file(s):"
+        foreach ($file in $files) {
+          $filecontent = Get-Content $file
+          attrib $file -r
+          $filecontent -replace $versionRegex, $version | Out-File $file
+          Write-Host "`t$file"
         }
-    workingDirectory: 'D:\BuildAgents\1\_work\_temp\data-test'
+      } else {
+        Write-Host "Found no files."
+      }
