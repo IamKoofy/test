@@ -2,10 +2,10 @@
 
 # Shell Script to trigger alert if the exception match string is found in the log within the last 5 minutes
 
-EXCEPTION_LOG_PATH=$1      # Path to the log directory
+EXCEPTION_LOG_PATH=$1      # Base path to the log directory
 EXCEPTION_STRING=$2        # Exception string to search for
 THRESHOLD=$3               # Threshold for the number of exceptions
-EXCEPTION_LOGFILE=$4       # Specific log file (e.g., service.log)
+EXCEPTION_LOGFILE=$4       # Specific log file (e.g., <podname>/service.log)
 INTERVAL=${5:-5}           # Default to 5 minutes if not provided
 
 # Calculate time-related variables
