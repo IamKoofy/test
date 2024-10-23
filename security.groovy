@@ -2,6 +2,7 @@ import json
 import requests
 from datetime import datetime
 from ansible.plugins.callback import CallbackBase
+import os
 
 class CallbackModule(CallbackBase):
     CALLBACK_VERSION = 2.0
@@ -53,6 +54,5 @@ class CallbackModule(CallbackBase):
             print(f"Error while sending log to Cribl: {str(e)}")
 
     def _get_user(self):
-        # Fetch the user executing the template
-        # This might vary based on your environment. You can adjust it to get the actual user.
-        return "jenkins-svc-account"  # Modify this if necessary
+        # Get the LDAP user executing the template from the environment variables (AAP sets this)
+        return os.getenv("AWX_USER_NAME", "unknown-user")
