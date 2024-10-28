@@ -15,7 +15,7 @@ class CallbackModule(CallbackBase):
         self.auth_token = "9999anf-annnnd-9444k-998885859004"
         self.headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.auth_token}'
+            'Authorization': f'Bearer {self.auth_token}'  # Ensure this is correct
         }
         self.user = None
         self.template_name = None
@@ -44,13 +44,36 @@ class CallbackModule(CallbackBase):
 
     def send_to_cribl(self, log_data):
         try:
-            print(f"Sending data to Cribl: {log_data}")  # Log the data being sent
             response = requests.post(self.cribl_endpoint, headers=self.headers, json=log_data, verify=False)
-            print(f"Response status code: {response.status_code}")  # Log the response status code
-            if response.status_code != 200:
-                print(f"Failed to send log to Cribl: {response.text}")
+            response.raise_for_status()  # Raise an error for bad responses
+        except requests.exceptions.HTTPError as e:
+            print(f"HTTP error occurred: {str(e)}")  # This will give more context on the error
         except requests.exceptions.RequestException as e:
-            print(f"Error while sending log to Cribl: {str(e)}")
+            print(f"Request error: {str(e)}")
 
     def _get_user(self):
         return os.getenv("AWX_USER_NAME", "unknown-user") or os.getenv("TOWER_USERNAME", "unknown-user")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+curl -X POST https://default.main.vibrant-90msg.cribl.cloud:10070 \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer 9999anf-annnnd-9444k-998885859004" \
+     -d '{"user": "test_user", "template_name": "test_template", "event_type": "playbook_start", "timestamp": "2023-01-01T00:00:00Z"}'
+
+
+
+
+
+
