@@ -26,7 +26,13 @@ class CallbackModule(CallbackBase):
 
     def v2_playbook_on_start(self, playbook):
         self.user = self._get_user(playbook)
-        self.template_name = playbook._file_name
+        self.template_name = self._get_template_name(playbook)
+        
+        # Debugging: Print the user and template name to the container logs
+        logging.debug(f"Playbook started by user: {self.user}")
+        logging.debug(f"Template name: {self.template_name}")
+        
+        # Send info to Cribl
         log_entry = {
             "user": self.user,
             "template_name": self.template_name,
@@ -35,37 +41,4 @@ class CallbackModule(CallbackBase):
         }
         self.send_to_cribl(log_entry)
 
-    def v2_playbook_on_stats(self, stats):
-        summary = {host: stats.summarize(host) for host in stats.processed}
-        log_entry = {
-            "user": self.user,
-            "template_name": self.template_name,
-            "event_type": "playbook_end",
-            "timestamp": datetime.utcnow().isoformat(),
-            "summary": summary
-        }
-        self.send_to_cribl(log_entry)
-
-    def send_to_cribl(self, log_data):
-        try:
-            response = requests.post(self.cribl_endpoint, headers=self.headers, json=log_data, verify=False)
-            response.raise_for_status()  # Raise an error for bad responses
-        except requests.exceptions.HTTPError as e:
-            print(f"HTTP error occurred: {str(e)}")  # This will give more context on the error
-        except requests.exceptions.RequestException as e:
-            print(f"Request error: {str(e)}")
-
-    def _get_user(self, playbook):
-        # Access the job object, get user metadata from job's created_by field
-        try:
-            job = playbook._playbook._playbook_vars.get('awx_job', None)
-            if job and job.created_by:
-                username = job.created_by.username
-                logging.debug(f"User who launched the job: {username}")
-                return username
-            else:
-                logging.warning("Could not fetch job user information")
-                return "unknown-user"
-        except AttributeError as e:
-            logging.error(f"Error retrieving user info: {str(e)}")
-            return "unknown-user"
+    def v2_playbo
