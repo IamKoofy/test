@@ -22,12 +22,15 @@ class CallbackModule(CallbackBase):
         self.template_name = None
 
     def v2_playbook_on_start(self, playbook):
-        # Capture the AWX user and template info from extra vars
-        play_vars = playbook._variable_manager._extra_vars  # Access extra vars
+        # Retrieve playbook variables through context
+        play_vars = playbook.__dict__.get('extra_vars', {})
         self.user_name = play_vars.get("awx_user_name", "unknown-user")
         self.user_email = play_vars.get("awx_user_email", "unknown-email")
         self.template_name = play_vars.get("awx_template_name", "unknown-template")
 
+        # Print user name for debugging
+        print(f"Debug: User Name - {self.user_name}")
+        
         # Create log entry
         log_entry = {
             "user_name": self.user_name,
