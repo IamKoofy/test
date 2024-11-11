@@ -1,11 +1,13 @@
-def v2_playbook_on_start(self, playbook):
-        # Attempt to retrieve extra_vars from the playbook
-        variable_manager = playbook.get_variable_manager()
-        extra_vars = variable_manager._extra_vars if hasattr(variable_manager, '_extra_vars') else {}
+import json
+from ansible.module_utils.basic import AnsibleModule
 
-        # Capture the job ID if available
-        tower_job_id = extra_vars.get('tower_job_id', 'unknown-job-id')
-        print("AWX Job ID:", tower_job_id)
+def main():
+    module = AnsibleModule(argument_spec={})
+    # Access the ansible_env variable
+    ansible_env = module.params.get('ansible_env', {})
+    
+    # Print ansible_env as a JSON string for better readability
+    print(json.dumps(ansible_env, indent=4))
 
-        # Print all extra variables
-        print("All Extra Vars Available:", extra_vars)
+if __name__ == '__main__':
+    main()
