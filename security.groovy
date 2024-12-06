@@ -25,7 +25,7 @@
           {{
             backup_dirs | map('regex_replace', '.*_backup_(\\d{4}-\\d{2}-\\d{2})', '\\1') |
             map('to_datetime', '%Y-%m-%d') |
-            select('lt', (now() - retention_days * 86400)) |
+            select('lt', (now() - retention_days | int | timedelta(days=1))) |
             map('strftime', '%Y-%m-%d') |
             map('regex_replace', '(.*)', backup_base_path ~ '/' ~ '\\1')
           }}
