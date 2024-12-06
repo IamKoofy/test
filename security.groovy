@@ -21,12 +21,13 @@
             map('first') | list
           }}
 
-    - name: Identify old backups
+    - name: Calculate directories older than retention_days
       set_fact:
         old_backups: >-
           {{
-            backup_dirs | select('date_compare', '%Y-%m-%d', now() | strftime('%Y-%m-%d'), "<", retention_days) |
-            map('regex_replace', '(.*)', backup_base_path ~ '/' ~ '\\1')
+            backup_dirs | selectattr(
+              'to_datetime', '%Y-%m-%d', '%Y-%m-%d', now() | strftime('%Y-%m-%d')
+            ) | map('regex_replace', '(.*)', backup_base_path ~ '/' ~ '\\1')
           }}
 
     - name: Debug old backups
