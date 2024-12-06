@@ -19,13 +19,13 @@
             dir_list.stdout_lines | select('match', '_backup_\\d{4}-\\d{2}-\\d{2}$')
           }}
 
-    - name: Parse directory dates and find old backups
+    - name: Identify old backups
       set_fact:
         old_backups: >-
           {{
             backup_dirs | map('regex_replace', '.*_backup_(\\d{4}-\\d{2}-\\d{2})', '\\1') |
             map('to_datetime', '%Y-%m-%d') |
-            select('lt', (now() - retention_days | int | timedelta(days=1))) |
+            select('lt', (now() - retention_days * 86400)) |
             map('strftime', '%Y-%m-%d') |
             map('regex_replace', '(.*)', backup_base_path ~ '/' ~ '\\1')
           }}
