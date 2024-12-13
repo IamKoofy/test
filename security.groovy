@@ -1,50 +1,26 @@
----
-- name: Configure ALB for DEV_NONCDE
-  hosts: localhost
-  gather_facts: no
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 
-  tasks:
-    - name: Create internal ALB
-      amazon.aws.elb_application_lb:
-        name: "{{ alb_name }}"
-        state: present
-        region: "{{ aws_region }}"
-        subnets:
-          - "subnet-0a123456789abcde1"
-          - "subnet-0b123456789abcde2"
-        security_groups:
-          - "sg-0c123456789abcde3"
-        scheme: "{{ alb_scheme }}"
-        ip_address_type: ipv4
-        listeners:
-          - Protocol: HTTP
-            Port: 80
-            DefaultActions:
-              - Type: forward
-                TargetGroupName: Test-Target-group
-      when: alb_scheme == 'internal'
+def validate_aws_credentials(access_key, secret_key):
+    try:
+        # Initialize STS client
+        client = boto3.client(
+            'sts',
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key
+        )
+        # Call GetCallerIdentity
+        response = client.get_caller_identity()
+        print("Credentials are valid!")
+        print(f"UserId: {response['UserId']}")
+        print(f"Account: {response['Account']}")
+        print(f"ARN: {response['Arn']}")
+    except NoCredentialsError:
+        print("No credentials found.")
+    except PartialCredentialsError:
+        print("Incomplete credentials provided.")
+    except ClientError as e:
+        print(f"Error: {e}")
 
-    - name: Create internet-facing ALB
-      amazon.aws.elb_application_lb:
-        name: "{{ alb_name }}"
-        state: present
-        region: "{{ aws_region }}"
-        subnets:
-          - "subnet-0a123456789abcde1"
-          - "subnet-0b123456789abcde2"
-        security_groups:
-          - "sg-0c123456789abcde3"
-        scheme: "{{ alb_scheme }}"
-        ip_address_type: ipv4
-        listeners:
-          - Protocol: HTTPS
-            Port: 443
-            DefaultActions:
-              - Type: forward
-                TargetGroupName: Test-Target-group
-            SslPolicy: ELBSecurityPolicy-2016-08
-            CertificateArn: "{{ certificate_arn }}"
-      when: alb_scheme == 'internet-facing'
-
-  vars:
-    certificate_arn: "{{ lookup('aws_acm', 'certificate_arn', domain_name=application_name) }}"
+# Replace with your actual access key and secret key
+validate_aws_credentials('<YourAccessKey>', '<YourSecretKey>')
