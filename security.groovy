@@ -1,47 +1,56 @@
----
-- name: Restart Pods in Kubernetes
-  hosts: localhost
-  gather_facts: no
-  tasks:
-    - name: Login to OpenShift
-      shell: >
-        {% if sr_environment == 'CDE' %}
-        oc login --token={{ cde_api_token }} --server={{ cde_api_url }}
-        {% else %}
-        oc login --token={{ non_cde_api_token }} --server={{ non_cde_api_url }}
-        {% endif %}
-      register: oc_login
-      failed_when: oc_login.rc != 0
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
-    - name: Get initial pod count
-      shell: >
-        oc get pods -n {{ sr_project }} -l app={{ sr_service }} -o jsonpath='{.items | length}'
-      register: initial_pod_count
-      failed_when: initial_pod_count.rc != 0
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>YourAssemblyName</AssemblyName> <!-- Replace with your project name -->
+  </PropertyGroup>
 
-    - name: Restart pods
-      shell: >
-        {% if sr_restart_all %}
-        oc delete pod -n {{ sr_project }} -l app={{ sr_service }}
-        {% else %}
-        oc delete pod -n {{ sr_project }} {{ sr_pod_names.split(',') | join(' ') }}
-        {% endif %}
-      register: restart_pods_output
-      failed_when: restart_pods_output.rc != 0
-
-    - name: Wait for pods to stabilize
-      shell: >
-        oc wait --for=condition=Ready pods -n {{ sr_project }} -l app={{ sr_service }} --timeout=300s
-      register: wait_result
-      failed_when: wait_result.rc != 0
-
-    - name: Get final pod count
-      shell: >
-        oc get pods -n {{ sr_project }} -l app={{ sr_service }} -o jsonpath='{.items | length}'
-      register: final_pod_count
-      failed_when: final_pod_count.rc != 0
-
-    - name: Validate pod count
-      fail:
-        msg: "Pod count mismatch! Initial: {{ initial_pod_count.stdout }}, Final: {{ final_pod_count.stdout }}"
-      when: initial_pod_count.stdout != final_pod_count.stdout
+  <ItemGroup>
+    <PackageReference Include="AutoMapper" Version="5.1.1" />
+    <PackageReference Include="Consul" Version="0.7.2.1" />
+    <PackageReference Include="EntityFramework" Version="6.1.3" />
+    <PackageReference Include="EntityFramework.SqlServer" Version="6.1.3" />
+    <PackageReference Include="EventStore.ClientAPI" Version="3.9.4" />
+    <PackageReference Include="FluentValidation" Version="6.2.1.0" />
+    <PackageReference Include="HRG.Encryption" Version="1.0.3" />
+    <PackageReference Include="HRG.Profile.RolesMembership" Version="16.1.0" />
+    <PackageReference Include="HRG.Support" Version="2.1.4" />
+    <PackageReference Include="Microsoft.AspNetCore" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Abstractions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Core" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Diagnostics" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Diagnostics.Abstractions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Hosting" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Hosting.Abstractions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Hosting.Server.Abstractions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Http.Extensions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Http.Features" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.HttpOverrides" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Routing" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Routing.Abstractions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Server.IISIntegration" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Server.Kestrel" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Server.Kestrel.Core" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Server.Kestrel.Https" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Server.Kestrel.Transport.Abstractions" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Server.Kestrel.Transport.Libuv" Version="2.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="2.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.CommandLine" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="2.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="2.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="10.0.3" />
+    <PackageReference Include="Serilog" Version="2.5.0" />
+    <PackageReference Include="StackExchange.Redis" Version="1.2.0" />
+  </ItemGroup>
+</Project>
