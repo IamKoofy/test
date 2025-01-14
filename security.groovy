@@ -11,6 +11,7 @@ if (!(Test-Path $artifactFolder)) {
 }
 
 $serviceDll = "$serviceFolder\$serviceName.dll"
+$serviceExe = "$serviceFolder\$serviceName.exe"  # Path to your executable
 
 if (Test-Path $serviceFolder) {
     Write-Host "Service folder already exists, checking to stop and remove the service"
@@ -57,15 +58,17 @@ Write-Host "Copying service from artifactFolder to serviceFolder"
 Copy-Item "$artifactFolder\*" -Destination $serviceFolder -Recurse
 
 Write-Host "Installing service"
-Start-Process "dotnet" -ArgumentList "$serviceDll"
+# Install the service using sc.exe
+sc.exe create $serviceName binPath= "$serviceExe" start= auto
+
+# If needed, set service as delayed start
+Write-Host "Setting service as delayed start"
+sc.exe config $serviceName start= delayed-auto
 
 if (![string]::IsNullOrWhiteSpace($serviceUsername) -and $serviceUsername -ne "?") {
     Write-Host "Setting service as user"
-    sc.exe config $serviceName obj=$serviceUsername password=$servicePassword
+    sc.exe config $serviceName obj= $serviceUsername password= $servicePassword
 }
-
-Write-Host "Setting service as delayed start"
-sc.exe config $serviceName start=delayed-auto
 
 Write-Host "Setting service as delayed restart"
 sc.exe config $serviceName AppRestartDelay=5000
@@ -73,4 +76,4 @@ sc.exe config $serviceName AppRestartDelay=5000
 $descr = "HRG - $serviceName"
 sc.exe description $serviceName "$descr"
 
-Write-Host "Service is installed"
+Write-Host "Service is installed and configured"
