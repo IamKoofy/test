@@ -1,4 +1,3 @@
-steps:
 - task: PowerShell@1
   displayName: 'Remove Existing Windows Service'
   inputs:
@@ -14,4 +13,3 @@ steps:
           Write-Host "Service $serviceName has been removed."
       } else {
           Write-Host "Service $serviceName does not exist. Skipping removal."
-      }
