@@ -1,19 +1,23 @@
 ---
-- name: Fetch SR Details and Validate
+- name: Fetch SR Details and Restart Pods
   hosts: localhost
   gather_facts: no
+  vars:
+    api_url: "https://amexgbt.freshservice.com/api/v2/tickets"
+    auth_username: "qdIwrrVoGVjaN4HCpgC"
+    auth_password: "<your_password_here>"
   tasks:
     - name: Process each SR
-      with_items: "{{ sr_ids }}"
+      loop: "{{ sr_ids }}"  # Iterate over the list of SR IDs
       loop_control:
         loop_var: sr_id
       tasks:
-        - name: Get details for each incident
+        - name: Get details for the incident
           uri:
-            url: "https://amexgbt.freshservice.com/api/v2/tickets/{{ sr_id }}/requested_items"
+            url: "{{ api_url }}/{{ sr_id }}/requested_items"
             method: GET
-            url_username: qdIwrrVoGVjaN4HCpgC
-            url_password: <your_password_here>
+            url_username: "{{ auth_username }}"
+            url_password: "{{ auth_password }}"
             return_content: yes
             status_code: 200
             validate_certs: no
@@ -21,14 +25,11 @@
             force_basic_auth: yes
             follow_redirects: all
           register: sr_details
-
-        - name: Print results
-          debug:
-            msg: "Results: {{ sr_details }}"
+          failed_when: sr_details.status != 200
 
         - name: Parse the JSON content from ticket data
           set_fact:
-            json_data: "{{ sr_details.content | from_json }}" # Updated from 'from_yaml' to 'from_json'
+            json_data: "{{ sr_details.json }}"
 
         - name: Extract fields from the JSON data
           set_fact:
@@ -38,11 +39,11 @@
                  | selectattr('key', 'in', ['environment', 'project', 'service'])
                  | items2dict }}
 
-        - name: Print results
+        - name: Print extracted SR details
           debug:
-            var: extracted_info
+            msg: "Extracted details: {{ extracted_info }}"
 
-        - name: Trigger Pod Restart for SR
+        - name: Restart Pods for the SR
           ansible.builtin.include_role:
             name: restart_pods
           vars:
