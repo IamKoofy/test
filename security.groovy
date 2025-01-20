@@ -7,8 +7,12 @@
     auth_username: "qdIwrrVoGVjaN4HCpgC"
     auth_password: "<your_password_here>"
   tasks:
+    - name: Debug SR IDs
+      debug:
+        var: sr_ids
+
     - name: Process each SR
-      loop: "{{ sr_ids }}"  # Iterate over the list of SR IDs
+      loop: "{{ sr_ids }}"  # Loop through the list of SRs
       loop_control:
         loop_var: sr_id
       tasks:
@@ -29,7 +33,7 @@
 
         - name: Parse the JSON content from ticket data
           set_fact:
-            json_data: "{{ sr_details.json }}"
+            json_data: "{{ sr_details.json | default({}) }}"
 
         - name: Extract fields from the JSON data
           set_fact:
@@ -39,7 +43,7 @@
                  | selectattr('key', 'in', ['environment', 'project', 'service'])
                  | items2dict }}
 
-        - name: Print extracted SR details
+        - name: Debug extracted SR details
           debug:
             msg: "Extracted details: {{ extracted_info }}"
 
@@ -50,5 +54,5 @@
             sr_environment: "{{ extracted_info.environment }}"
             sr_project: "{{ extracted_info.project }}"
             sr_service: "{{ extracted_info.service }}"
-            sr_restart_all: "{{ extracted_info.custom_fields.restart_all_pods }}"
-            sr_pod_names: "{{ extracted_info.custom_fields.pod_names }}"
+            sr_restart_all: "{{ extracted_info.custom_fields.restart_all_pods | default(false) }}"
+            sr_pod_names: "{{ extracted_info.custom_fields.p
