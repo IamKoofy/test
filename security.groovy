@@ -24,40 +24,42 @@
       register: sr_details
       failed_when: sr_details.status != 200
 
-    - name: Parse the JSON content from ticket data
+    - name: Accumulate SR details into a list
       set_fact:
-        json_data: "{{ sr_details.json }}"
-      loop: "{{ sr_ids }}"  # Loop through each SR ID again
+        all_srs_details: "{{ all_srs_details | default([]) + [item.json] }}"
+      loop: "{{ sr_details.results }}"
       loop_control:
-        loop_var: sr_id
+        loop_var: item  # Use 'item' as the loop variable
+      register: accumulated_srs  # Store all accumulated data
 
     - name: Extract fields from the JSON data
       set_fact:
         extracted_info: >-
-          {{ json_data.requested_items[0].custom_fields
+          {{ item.requested_items[0].custom_fields
              | dict2items
              | selectattr('key', 'in', ['environment', 'project', 'service'])
              | items2dict }}
-      loop: "{{ sr_ids }}"  # Loop through each SR ID again
+      loop: "{{ accumulated_srs.results }}"  # Loop through all accumulated SR details
       loop_control:
-        loop_var: sr_id
+        loop_var: item
+      register: extracted_info_list  # Store the extracted fields for each SR
 
     - name: Print extracted SR details
       debug:
-        msg: "Extracted details: {{ extracted_info }}"
-      loop: "{{ sr_ids }}"  # Loop through each SR ID again
+        msg: "Extracted details: {{ item }}"
+      loop: "{{ extracted_info_list }}"  # Loop through the extracted info for all SRs
       loop_control:
-        loop_var: sr_id
+        loop_var: item
 
     - name: Restart Pods for each SR
       ansible.builtin.include_role:
         name: restart_pods
       vars:
-        sr_environment: "{{ extracted_info.environment }}"
-        sr_project: "{{ extracted_info.project }}"
-        sr_service: "{{ extracted_info.service }}"
-        sr_restart_all: "{{ extracted_info.custom_fields.restart_all_pods }}"
-        sr_pod_names: "{{ extracted_info.custom_fields.pod_names }}"
-      loop: "{{ sr_ids }}"  # Loop through each SR ID again
+        sr_environment: "{{ item.environment }}"
+        sr_project: "{{ item.project }}"
+        sr_service: "{{ item.service }}"
+        sr_restart_all: "{{ item.custom_fields.restart_all_pods }}"
+        sr_pod_names: "{{ item.custom_fields.pod_names }}"
+      loop: "{{ extracted_info_list }}"  # Loop through the extracted fields for all SRs
       loop_control:
-        loop_var: sr_id
+        loop_var: item
