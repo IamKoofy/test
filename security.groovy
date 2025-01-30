@@ -1,92 +1,77 @@
----
-- name: Get details for the incident
-  uri:
-    url: "{{ api_url }}/{{ sr_id }}/requested_items"
-    method: GET
-    url_username: "{{ auth_username }}"
-    return_content: yes
-    status_code: 200
-    validate_certs: no
-    body_format: json
-    force_basic_auth: yes
-    follow_redirects: all
-  register: sr_details
-  failed_when: sr_details.status != 200
+# User Guide: Pod Restart Request in Freshservice
 
-- name: Parse the JSON content from ticket data
-  set_fact:
-    json_data: "{{ sr_details.json | default({}) }}"
+Overview
 
-- name: Extract fields from the JSON data
-  set_fact:
-    extracted_info:
-      environment: "{{ json_data.requested_items[0].custom_fields.environment }}"
-      project: "{{ json_data.requested_items[0].custom_fields.name_of_the_project }}"
-      service: "{{ json_data.requested_items[0].custom_fields.name_of_the_service }}"
-      restart_all: "{{ json_data.requested_items[0].custom_fields.should_we_restart_all_pods_or_one_pod_at_a_time | lower }}"
-      pod_names: "{{ json_data.requested_items[0].custom_fields.name_of_the_pod | default('') }}"
+This document provides guidance on how to request a pod restart using the Freshservice ticketing system. This automation ensures that the necessary pods are restarted efficiently without manual intervention.
 
-- name: Debug extracted SR details
-  debug:
-    msg: "Extracted details: {{ extracted_info }}"
+How to Submit a Request
 
-- name: Restart Pods for the SR
-  include_tasks: restart_pods.yml
-  vars:
-    sr_environment: "{{ extracted_info.environment }}"
-    sr_project: "{{ extracted_info.project }}"
-    sr_service: "{{ extracted_info.service }}"
-    sr_restart_all: "{{ extracted_info.restart_all }}"
-    sr_pod_names: "{{ extracted_info.pod_names }}"
+Log in to Freshservice.
 
+Navigate to the Service Catalog.
 
+Select the template ePaaS Pod Start/Stop.
 
+Fill in the following fields with the required details:
 
+Environment: Select the appropriate environment (e.g., NON-CDE, CDE).
 
+Name of the Project: Enter the project name.
 
+Name of the Service: Specify the service name.
 
+Should we restart all pods for the service?: Choose YES or NO.
 
+If NO, provide the pod names: Enter the pod names as a comma-separated list (e.g., pod1-abc123,pod2-def456).
 
----
-- name: Login to OpenShift
-  shell: >
-    {% if sr_environment == 'CDE' %}
-    oc login --token={{ cde_api_token }} --server={{ cde_api_url }}
-    {% else %}
-    oc login --token={{ non_cde_api_token }} --server={{ non_cde_api_url }}
-    {% endif %}
-  register: oc_login
-  failed_when: oc_login.rc != 0
+Submit the request.
 
-- name: Get initial pod count
-  shell: >
-    oc get pods -n {{ sr_project }} -l app={{ sr_service }} -o jsonpath="{.items[?(@.status.phase=='Running')].metadata.name}" | wc -w
-  register: initial_pod_count
-  failed_when: initial_pod_count.rc != 0
+The automation will handle the pod restart based on the provided details.
 
-- name: Restart pods
-  shell: >
-    {% if sr_restart_all == 'yes' %}
-    oc delete pod -n {{ sr_project }} -l app={{ sr_service }}
-    {% else %}
-    oc delete pod -n {{ sr_project }} {{ sr_pod_names.split(',') | join(' ') }}
-    {% endif %}
-  register: restart_pods_output
-  failed_when: restart_pods_output.rc != 0
+# Technical Documentation: Pod Restart Automation
 
-- name: Wait for pods to stabilize
-  shell: >
-    oc wait --for=condition=Ready pods -n {{ sr_project }} -l app={{ sr_service }} --timeout=300s
-  register: wait_result
-  failed_when: wait_result.rc != 0
+Overview
 
-- name: Get final pod count
-  shell: >
-    oc get pods -n {{ sr_project }} -l app={{ sr_service }} -o jsonpath="{.items[?(@.status.phase=='Running')].metadata.name}" | wc -w
-  register: final_pod_count
-  failed_when: final_pod_count.rc != 0
+The pod restart automation retrieves Service Requests (SRs) from Freshservice, extracts necessary details, and triggers an OpenShift pod restart based on the request parameters.
 
-- name: Validate pod count
-  fail:
-    msg: "Pod count mismatch! Initial: {{ initial_pod_count.stdout }}, Final: {{ final_pod_count.stdout }}"
-  when: initial_pod_count.stdout != final_pod_count.stdout
+Workflow
+
+Fetch Freshservice SRs: The automation polls Freshservice for SRs that match the relevant criteria.
+
+Extract Request Details: Parses the request fields including environment, project name, service name, restart type, and pod names.
+
+Execute Restart Process:
+
+If "Restart all pods" is YES, it deletes all pods for the specified service.
+
+If "Restart all pods" is NO, it deletes only the specified pods.
+
+Validation: The script waits for the pods to stabilize and verifies the restart was successful.
+
+Inputs from Freshservice
+
+environment: NON-CDE or CDE.
+
+name_of_the_project: The project namespace in OpenShift.
+
+name_of_the_service: The service name associated with the pods.
+
+should_we_restart_all_pods_or_one_pod_at_a_time: YES or NO.
+
+name_of_the_pod: Comma-separated list of pod names (only required if "Restart all pods" is NO).
+
+Key Playbooks
+
+fetch_sr.yml: Retrieves SRs from Freshservice.
+
+process_sr.yml: Extracts relevant fields and initiates the restart process.
+
+restart_pods.yml: Handles the OpenShift login and pod deletion based on request parameters.
+
+Logs & Monitoring
+
+Automation logs are available in AAP for troubleshooting.
+
+Any failures in execution will be captured in the logs and can be reviewed in AWX/AAP.
+
+For any issues, refer to the automation logs or contact the platform team.
