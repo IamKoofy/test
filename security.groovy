@@ -1,144 +1,59 @@
----
-- name: Login to OpenShift
-  shell: >
-    {% if sr_environment == 'CDE' %}
-    oc login --token={{ cde_api_token }} --server={{ cde_api_url }}
-    {% else %}
-    oc login --token={{ non_cde_api_token }} --server={{ non_cde_api_url }}
-    {% endif %}
-  register: oc_login
-  failed_when: oc_login.rc != 0
+name: "Build AdService"
 
-- name: Get initial pod count
-  shell: >
-    oc get pods -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }} -o jsonpath="{.items[?(@.status.phase=='Running')].metadata.name}" | wc -w
-  register: initial_pod_count
-  failed_when: initial_pod_count.rc != 0
+on:
+  workflow_dispatch:
 
-- name: Restart pods based on condition
-  block:
-    - name: Restart all pods related to DeploymentConfig
-      shell: >
-        oc delete pod -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }}
-      register: restart_pods_output
-      failed_when: restart_pods_output.rc != 0
-      when: sr_restart_all | lower | trim == 'yes'
+env:
+  GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+  SNYK_AUTH_TOKEN: ${{ secrets.SNYK_AUTH_TOKEN }}
+  SNYK_ORG: ${{ secrets.SNYK_ORG }}
+  SNYK_PROJECT_NAME: ${{ secrets.SNYK_PROJECT_NAME }}
+  MAJOR_VERSION: ${{ vars.MajorVersion }}
+  MINOR_VERSION: ${{ vars.MinorVersion }}
+  BUILD_NUMBER: ${{ vars.BuildNumber }}
+  REV: ${{ vars.Rev }}
+  PATH_TO_PROJECT: ${{ vars.PathToProject }}
+  SOLUTION_FILE: ${{ vars.SolutionFile }}
+  PATH_TO_TEST_PROJECT: ${{ vars.PathToTestProject }}
+  COMPONENT_NAME: ${{ vars.ComponentName }}
+  BUILD_CONFIGURATION: ${{ vars.BuildConfiguration }}
+  SONARQUBE_PROJECT_NAME: ${{ vars.SonarQubeProjectName }}
+  SONARQUBE_EXCLUSIONS: ${{ vars.SonarQubeExclusions }}
 
-    - name: Restart specific pods
-      shell: >
-        oc delete pod -n {{ sr_project }} {{ sr_pod_names.split(',') | join(' ') }}
-      register: restart_pods_output
-      failed_when: restart_pods_output.rc != 0
-      when: sr_restart_all | lower | trim != 'yes'
+jobs:
+  build:
+    name: "Building AdService"
+    runs-on: main-build-pool
+    steps:
+      - name: "Checkout Azure Pipelines Templates"
+        run: |
+          echo "Cloning Git templates"
+          git clone https://github.com/TEST/Azure-Pipelines.git templates
+          cd templates
+          git checkout main
 
-- name: Wait for pods to stabilize
-  shell: >
-    oc wait --for=condition=Ready pods -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }} --timeout=300s
-  register: wait_result
-  failed_when: wait_result.rc != 0
+      - name: "Checkout MilkyWay-TravelConfirmation Repo"
+        run: |
+          echo "Cloning Git repo"
+          git clone https://${{ env.GITHUB_PAT }}@github.com/TEST/MilkyWay-TravelConfirmation.git MilkyWayTravelConfirmation
+          cd MilkyWayTravelConfirmation
+          git checkout main
 
-- name: Get final pod count
-  shell: >
-    oc get pods -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }} -o jsonpath="{.items[?(@.status.phase=='Running')].metadata.name}" | wc -w
-  register: final_pod_count
-  failed_when: final_pod_count.rc != 0
-
-- name: Validate pod count
-  fail:
-    msg: "Pod count mismatch! Initial: {{ initial_pod_count.stdout }}, Final: {{ final_pod_count.stdout }}"
-  when: initial_pod_count.stdout != final_pod_count.stdout
-
-# Freshservice SR Update Tasks
-- name: Close Freshservice SR if restart successful
-  when: initial_pod_count.stdout == final_pod_count.stdout
-  block:
-    - name: Reply to the user that pod restart is successful
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}/reply"
-        method: POST
-        url_username: KEY
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >-
-          {
-            "body": "POD restart completed successfully",
-            "cc_emails": [ "abhishek.j@amexgbt.com" ]
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
-
-    - name: Close the service request in Freshservice
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}"
-        method: PUT
-        url_username: KEY
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >-
-          {
-            "ticket": {
-              "status": 5,
-              "description": "Pod restart completed successfully, closing this SR"
-            }
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
-
-- name: Set Freshservice SR to pending if restart failed
-  when: initial_pod_count.stdout != final_pod_count.stdout
-  block:
-    - name: Reply to the user that pod restart failed
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}/reply"
-        method: POST
-        url_username: KEY
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >-
-          {
-            "body": "Pod restart could not be completed. The internal team is investigating.",
-            "cc_emails": [ "abhishek.j@amexgbt.com" ]
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
-
-    - name: Set ticket status to pending in Freshservice
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}"
-        method: PUT
-        url_username: KEY
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >-
-          {
-            "ticket": {
-              "status": 3,
-              "description": "Pod restart failed. Internal team is investigating.",
-              "custom_fields": {
-                "pending_substatus": "Awaiting Internal Team Action",
-                "agent_notes": "Pod restart failed. Internal team will investigate further."
-              }
-            }
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
+      - name: "Build .NET Framework Application"
+        uses: ./.github/actions/build-dotnet-framework
+        with:
+          VersioningTaskGroupFilename: 'task-groups/version-build.taskgroup.yml'
+          MajorVersion: ${{ env.MAJOR_VERSION }}
+          MinorVersion: ${{ env.MINOR_VERSION }}
+          BuildNumber: ${{ env.BUILD_NUMBER }}
+          Rev: ${{ env.REV }}
+          PathToProject: ${{ env.PATH_TO_PROJECT }}
+          SolutionFile: ${{ env.SOLUTION_FILE }}
+          PathToTestProject: ${{ env.PATH_TO_TEST_PROJECT }}
+          ComponentName: ${{ env.COMPONENT_NAME }}
+          BuildConfiguration: ${{ env.BUILD_CONFIGURATION }}
+          SonarQubeProjectName: ${{ env.SONARQUBE_PROJECT_NAME }}
+          SonarQubeExclusions: ${{ env.SONARQUBE_EXCLUSIONS }}
+          SnykAuthToken: ${{ env.SNYK_AUTH_TOKEN }}
+          SnykOrg: ${{ env.SNYK_ORG }}
+          SnykProjectName: ${{ env.SNYK_PROJECT_NAME }}
