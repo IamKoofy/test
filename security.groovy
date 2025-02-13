@@ -1,12 +1,10 @@
-name: Build .NET Framework App
+# Reusable GitHub Actions workflow for .NET Framework Build & WebDeploy
+
+name: HRG DotNet Framework Build
 
 on:
   workflow_call:
     inputs:
-      VersioningTaskGroupFilename:
-        required: false
-        type: string
-        default: 'task-groups/version-use-buildnumber.taskgroup.yml'
       MajorVersion:
         required: true
         type: string
@@ -67,57 +65,73 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Source
         uses: actions/checkout@v4
 
       - name: Display Pipeline Info
-        run: echo "Running .NET Framework build"
+        uses: ./templates/.github/workflows/display-pipeline-info.yml
 
-      - name: Run Versioning Task Group
-        run: echo "Running ${{ inputs.VersioningTaskGroupFilename }} with Version: ${{ inputs.MajorVersion }}.${{ inputs.MinorVersion }}.${{ inputs.BuildNumber }}.${{ inputs.Rev }}"
+      - name: Versioning Task Group
+        uses: ./templates/.github/workflows/version-use-buildnumber.yml
+        with:
+          MajorVersion: ${{ inputs.MajorVersion }}
+          MinorVersion: ${{ inputs.MinorVersion }}
+          BuildNumber: ${{ inputs.BuildNumber }}
+          Rev: ${{ inputs.Rev }}
 
-      - name: SonarQube Pre-Build Analysis
-        run: echo "Running SonarQube analysis for project ${{ inputs.SonarQubeProjectName }}"
+      - name: SonarQube Pre-Build
+        uses: ./templates/.github/workflows/sonarqube-pre-build.yml
+        with:
+          SonarQubeProjectName: ${{ inputs.SonarQubeProjectName }}
+          SonarQubeExclusions: ${{ inputs.SonarQubeExclusions }}
+          SonarQubeServiceConnection: ${{ inputs.SonarQubeServiceConnection }}
 
-      - name: Authenticate with NuGet Feed
-        run: echo "NuGet authentication completed"
+      - name: Authenticate with NuGet
+        run: nuget sources add -Name "HRGTec MilkyWay Nuget" -Source "https://repos.gbt.gbtad.com/repository/nuget-api-v3/index.json"
 
       - name: Restore NuGet Packages
-        run: nuget restore "${{ inputs.SolutionFile }}"
+        run: nuget restore ${{ inputs.SolutionFile }}
 
-      - name: Build .NET Framework Project
-        run: |
-          msbuild ${{ inputs.SolutionFile }} /p:Configuration=${{ inputs.BuildConfiguration }} /p:Platform="Any CPU"
+      - name: Build Project
+        run: msbuild ${{ inputs.SolutionFile }} /p:Configuration=${{ inputs.BuildConfiguration }}
 
-      - name: Run Snyk Security Scan
-        if: inputs.SnykScanEnabled == true
-        env:
-          SNYK_TOKEN: ${{ inputs.SnykAuthToken }}
-        run: |
-          echo "Running Snyk security scan for project ${{ inputs.SnykProjectName }}"
+      - name: Snyk Security Scan
+        if: ${{ inputs.SnykScanEnabled }}
+        uses: ./templates/.github/workflows/snyk-dotnet-scan.yml
+        with:
+          SnykScanEnabled: ${{ inputs.SnykScanEnabled }}
+          SnykAuthToken: ${{ inputs.SnykAuthToken }}
+          SnykSolutionFile: ${{ inputs.SolutionFile }}
+          SnykOrg: ${{ inputs.SnykOrg }}
+          SnykProjectName: ${{ inputs.SnykProjectName }}
 
       - name: Install Visual Studio Test Platform
-        run: echo "Installing Visual Studio Test Platform"
-
-      - name: Run Tests
-        if: inputs.VsTestEnabled == true
         run: |
-          vstest.console.exe "${{ inputs.PathToTestProject }}\**\*test*.dll" /EnableCodeCoverage
+          echo "Installing Visual Studio Test Platform..."
+          # Command to install the test platform
 
-      - name: SonarQube Post-Build Analysis
-        run: echo "Finalizing SonarQube analysis for ${{ inputs.SonarQubeProjectName }}"
+      - name: Run Build Tests
+        if: ${{ inputs.VsTestEnabled }}
+        run: |
+          vstest.console.exe **\*test*.dll /EnableCodeCoverage
+        working-directory: ${{ inputs.PathToTestProject }}
+
+      - name: SonarQube Post-Build
+        uses: ./templates/.github/workflows/sonarqube-post-build.yml
+        with:
+          SonarQubeProjectName: ${{ inputs.SonarQubeProjectName }}
 
       - name: Build Web Deploy Package
-        run: |
-          msbuild "${{ inputs.PathToProject }}" /p:Configuration=${{ inputs.BuildConfiguration }} /t:Package /p:OutputPath=$(Build.SourcesDirectory)\temp\ /p:PackageLocation=$(Build.SourcesDirectory)\Package\${{ inputs.ComponentName }}.zip
+        run: msbuild ${{ inputs.PathToProject }} /p:Configuration=${{ inputs.BuildConfiguration }} /T:Package /P:OutputPath=$(Build.SourcesDirectory)\temp\ /P:PackageLocation=$(Build.SourcesDirectory)\Package\${{ inputs.ComponentName }}.zip
 
-      - name: Copy Component Files
+      - name: Copy Component Files for Publishing
         run: |
-          mkdir -p ${{ github.workspace }}/artifacts/${{ inputs.ComponentName }}
-          cp -r Package/${{ inputs.ComponentName }}.zip temp/configuration.json ${{ github.workspace }}/artifacts/${{ inputs.ComponentName }}
+          mkdir -p $(Build.ArtifactStagingDirectory)/${{ inputs.ComponentName }}
+          cp Package/${{ inputs.ComponentName }}.zip $(Build.ArtifactStagingDirectory)/${{ inputs.ComponentName }}
+          cp temp/configuration.json $(Build.ArtifactStagingDirectory)/${{ inputs.ComponentName }}
 
-      - name: Upload Build Artifact
+      - name: Publish Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.ComponentName }}
-          path: ${{ github.workspace }}/artifacts/${{ inputs.ComponentName }}
+          path: $(Build.ArtifactStagingDirectory)/${{ inputs.ComponentName }}
