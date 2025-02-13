@@ -1,51 +1,57 @@
-name: SonarQube Post-Build
+name: Snyk .NET Scan
 
 on:
   workflow_call:
     inputs:
-      SonarQubeProjectName:
+      SnykScanEnabled:
+        required: false
+        type: boolean
+        default: true
+      SnykSolutionFile:
         required: true
         type: string
-      SonarprojectBaseDir:
+      SnykOrg:
+        required: true
+        type: string
+      SnykProjectName:
         required: true
         type: string
     secrets:
-      SONAR_HOST_URL:
-        required: true
-      SONAR_TOKEN:
+      SNYK_AUTH_TOKEN:
         required: true
 
 jobs:
-  sonarqube-post-build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+  snyk-scan:
+    if: ${{ inputs.SnykScanEnabled }}
+    runs-on: self-hosted  # Inherit the runner from the main pipeline
 
-      - name: Remove sonar.branch.name Variable
+    steps:
+      - name: Authenticate with Snyk
         shell: pwsh
         run: |
-          if ($env:SONARQUBE_SCANNER_PARAMS) {
-            $sonarSettings = $env:SONARQUBE_SCANNER_PARAMS | ConvertFrom-Json
-            $sonarSettings.PSObject.Properties.Remove("sonar.branch.name")
-            $updatedSonarSettings = $sonarSettings | ConvertTo-Json -compress
-            echo "##vso[task.setvariable variable=SONARQUBE_SCANNER_PARAMS]$updatedSonarSettings"
-            Write-Host $updatedSonarSettings
-          } else {
-            Write-Host "No SONARQUBE_SCANNER_PARAMS found, skipping..."
-          }
+          d:\snyk\snyk.exe auth ${{ secrets.SNYK_AUTH_TOKEN }}
 
-      - name: Run SonarQube Code Analysis
-        uses: sonarsource/sonarqube-scan-action@master
-        with:
-          sonarHostUrl: ${{ secrets.SONAR_HOST_URL }}
-          sonarToken: ${{ secrets.SONAR_TOKEN }}
-          args: >
-            -Dsonar.projectBaseDir=${{ inputs.SonarprojectBaseDir }}
-
-      - name: Publish SonarQube Results
+      - name: Run Snyk Code Scan
+        shell: pwsh
         run: |
-          echo "SonarQube analysis completed."
-          echo "Waiting for SonarQube results..."
-          sleep 300  # Simulates polling for 300 seconds (adjust as needed)
-        shell: bash
+          Write-Host "Build Number: $env:GITHUB_RUN_NUMBER"
+          $buildNumber = $env:GITHUB_RUN_NUMBER
+          $buildNumber = $buildNumber.Replace('.', '_')
+
+          d:\snyk\snyk.exe code test --org=${{ inputs.SnykOrg }} `
+            --sarif-file-output=results.sarif `
+            --file=${{ inputs.SnykSolutionFile }} `
+            --severity-threshold=medium --insecure --debug
+
+          d:\snyk\snyk-to-html.exe -o ${{ github.workspace }}/results-code.html -i results.sarif
+
+          d:\snyk\snyk.exe code test --org=${{ inputs.SnykOrg }} `
+            --report --project-name=${{ inputs.SnykProjectName }} `
+            --severity-threshold=medium --insecure --debug
+
+      - name: Upload Code Scan Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snyk-code-scan-results
+          path: results-code.html
