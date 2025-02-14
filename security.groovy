@@ -1,49 +1,29 @@
-name: Adservice Build
+---
+- name: Monitor Azure DevOps Agent Disk Space
+  hosts: windows_agents
+  gather_facts: no
+  tasks:
+    - name: Check disk usage on D: drive
+      win_shell: |
+        $disk = Get-PSDrive -Name D
+        $usedSpace = ($disk.Used / $disk.Used + $disk.Free) * 100
+        Write-Output $usedSpace
+      register: disk_usage
 
-on:
-  workflow_dispatch:
+    - name: Send email alert if disk space exceeds 90%
+      win_shell: |
+        $smtpServer = "smtp.example.com"
+        $from = "noreply@example.com"
+        $to = "admin@example.com"
+        $subject = "Warning: D: Drive Space Critical on {{ inventory_hostname }}"
+        $body = "The D: drive on {{ inventory_hostname }} is over 90% full. Please take action."
+        
+        $message = New-Object System.Net.Mail.MailMessage
+        $message.From = $from
+        $message.To.Add($to)
+        $message.Subject = $subject
+        $message.Body = $body
 
-env:
-  GITHUB_PAT: ${{ secrets.GITHUB_PAT }}  # Using GitHub secret for authentication
-  SNYK_AUTH_TOKEN: ${{ secrets.SNYK_AUTH_TOKEN }}
-  SNYK_ORG: ${{ secrets.SNYK_ORG }}
-  SNYK_PROJECT_NAME: ${{ secrets.SNYK_PROJECT_NAME }}
-
-jobs:
-  build-app:
-    runs-on: self-hosted
-    steps:
-      - name: Clone GitHub Templates Repo
-        shell: pwsh
-        run: |
-          Write-Host "Cloning Git templates"
-          git clone https://github.com/TEST/Azure-Pipelines.git templates
-          cd templates
-          git checkout main
-
-      - name: Clone GitHub Repo
-        shell: pwsh
-        run: |
-          Write-Host "Cloning Git repo"
-          git clone https://$env:GITHUB_PAT@github.com/TEST/MilkyWay-TravelConfirmation.git MilkyWayTravelConfirmation
-          cd MilkyWayTravelConfirmation
-          git checkout main
-
-      - name: Run Base Workflow (hrg-dotnet-framework)
-        uses: your-org/your-repo/.github/workflows/hrg-dotnet-framework.template.yml@main
-        with:
-          VersioningTaskGroupFilename: 'task-groups/version-build.taskgroup.yml'
-          MajorVersion: ${{ vars.MajorVersion }}
-          MinorVersion: ${{ vars.MinorVersion }}
-          BuildNumber: ${{ vars.BuildNumber }}
-          Rev: ${{ vars.Rev }}
-          PathToProject: ${{ vars.PathToProject }}
-          SolutionFile: ${{ vars.SolutionFile }}
-          PathToTestProject: ${{ vars.PathToTestProject }}
-          ComponentName: ${{ vars.ComponentName }}
-          BuildConfiguration: ${{ vars.BuildConfiguration }}
-          SonarQubeProjectName: ${{ vars.SonarQubeProjectName }}
-          SonarQubeExclusions: ${{ vars.SonarQubeExclusions }}
-          SnykAuthToken: ${{ secrets.SNYK_AUTH_TOKEN }}
-          SnykOrg: ${{ secrets.SNYK_ORG }}
-          SnykProjectName: ${{ secrets.SNYK_PROJECT_NAME }}
+        $smtp = New-Object Net.Mail.SmtpClient($smtpServer)
+        $smtp.Send($message)
+      when: disk_usage.stdout | float > 90
