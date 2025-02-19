@@ -1,47 +1,38 @@
-name: "Setup .NET (Internal)"
-description: "Sets up the required .NET SDK version"
-inputs:
-  dotnet-version:
-    description: "The .NET SDK version to install"
-    required: true
-  source-url:
-    description: "NuGet package source URL"
-    required: false
+name: "Setup MSBuild (Internal)"
+description: "Sets up MSBuild on Windows agents"
 runs:
   using: "composite"
   steps:
-    - name: Install .NET SDK
+    - name: Setup MSBuild
       shell: pwsh
-      run: |
-        ./github/actions/setup-dotnet/setup-dotnet.ps1 `
-          -DotnetVersion "${{ inputs.dotnet-version }}" `
-          -SourceUrl "${{ inputs.source-url }}"
+      run: ./github/actions/setup-msbuild/setup-msbuild.ps1
 
 
 
+Write-Host "🔹 Setting up MSBuild..."
 
+# Locate the latest Visual Studio installation
+$vswherePath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 
-param(
-    [string]$DotnetVersion,
-    [string]$SourceUrl
-)
-
-Write-Host "🔹 Setting up .NET SDK version: $DotnetVersion"
-
-# Install .NET SDK
-$dotnetInstallScript = "$env:TEMP\dotnet-install.ps1"
-Invoke-WebRequest -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $dotnetInstallScript
-& $dotnetInstallScript -Version $DotnetVersion
-
-# Add .NET to PATH
-$dotnetPath = "$env:USERPROFILE\.dotnet"
-[System.Environment]::SetEnvironmentVariable("DOTNET_ROOT", $dotnetPath, [System.EnvironmentVariableTarget]::Machine)
-$env:Path += ";$dotnetPath;$dotnetPath\tools"
-
-# Set NuGet Source URL if provided
-if ($SourceUrl -ne "") {
-    Write-Host "🔹 Configuring NuGet Source: $SourceUrl"
-    dotnet nuget add source $SourceUrl --name "internal-nuget"
+if (Test-Path $vswherePath) {
+    $vsPath = & $vswherePath -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+    if ($vsPath) {
+        $msbuildPath = "$vsPath\MSBuild\Current\Bin\MSBuild.exe"
+        if (Test-Path $msbuildPath) {
+            Write-Host "✅ MSBuild found at: $msbuildPath"
+            [System.Environment]::SetEnvironmentVariable("MSBUILD_PATH", $msbuildPath, [System.EnvironmentVariableTarget]::Machine)
+            $env:Path += ";$msbuildPath"
+        } else {
+            Write-Error "❌ MSBuild was not found in the expected location."
+            exit 1
+        }
+    } else {
+        Write-Error "❌ Visual Studio installation with MSBuild not found."
+        exit 1
+    }
+} else {
+    Write-Error "❌ vswhere.exe not found. Please install Visual Studio."
+    exit 1
 }
 
-Write-Host "✅ .NET SDK setup completed!"
+Write-Host "✅ MSBuild setup completed!"
