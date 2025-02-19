@@ -1,39 +1,72 @@
-name: "Upload Artifact (Internal)"
-description: "Uploads an artifact to GitHub Actions without using external actions"
+name: "Run VSTest (Internal)"
+description: "Runs VSTest for .NET projects"
 inputs:
-  name:
-    description: "The name of the artifact"
+  testAssembly:
+    description: "Pattern to find test assemblies"
     required: true
-  path:
-    description: "The path of the files/folder to be uploaded"
+  searchFolder:
+    description: "Folder where test assemblies are located"
     required: true
-  retention-days:
-    description: "The number of days to retain the artifact"
+  vsTestVersion:
+    description: "Version of VSTest to use"
     required: false
-    default: "30"
+    default: "toolsInstaller"
+  codeCoverageEnabled:
+    description: "Enable code coverage"
+    required: false
+    default: "true"
+  platform:
+    description: "Target platform"
+    required: false
+    default: "Any CPU"
 runs:
   using: "composite"
   steps:
-    - name: Create artifact directory if not exists
-      run: mkdir -p $GITHUB_WORKSPACE/artifacts
-      shell: bash
-
-    - name: Copy files to artifact directory
-      run: cp -r ${{ inputs.path }} $GITHUB_WORKSPACE/artifacts/${{ inputs.name }}
-      shell: bash
-
-    - name: Compress artifact
-      run: tar -czf $GITHUB_WORKSPACE/artifacts/${{ inputs.name }}.tar.gz -C $GITHUB_WORKSPACE/artifacts ${{ inputs.name }}
-      shell: bash
-
-    - name: Upload artifact using GitHub API
+    - name: Run VSTest
+      shell: pwsh
       run: |
-        ARTIFACT_NAME=${{ inputs.name }}
-        ARTIFACT_PATH=$GITHUB_WORKSPACE/artifacts/${{ inputs.name }}.tar.gz
-        echo "Uploading artifact $ARTIFACT_NAME..."
-        curl -X POST -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          -F "name=$ARTIFACT_NAME" \
-          -F "file=@$ARTIFACT_PATH" \
-          https://api.github.com/repos/${{ github.repository }}/actions/artifacts
-      shell: bash
+        ./github/actions/vstest/run-vstest.ps1 `
+          -TestAssembly "${{ inputs.testAssembly }}" `
+          -SearchFolder "${{ inputs.searchFolder }}" `
+          -VsTestVersion "${{ inputs.vsTestVersion }}" `
+          -CodeCoverageEnabled "${{ inputs.codeCoverageEnabled }}" `
+          -Platform "${{ inputs.platform }}"
+
+
+
+
+
+
+
+
+
+
+param(
+    [string]$TestAssembly,
+    [string]$SearchFolder,
+    [string]$VsTestVersion = "toolsInstaller",
+    [string]$CodeCoverageEnabled = "true",
+    [string]$Platform = "Any CPU"
+)
+
+Write-Host "🔹 Running VSTest with the following parameters:"
+Write-Host "Test Assembly: $TestAssembly"
+Write-Host "Search Folder: $SearchFolder"
+Write-Host "VSTest Version: $VsTestVersion"
+Write-Host "Code Coverage Enabled: $CodeCoverageEnabled"
+Write-Host "Platform: $Platform"
+
+# Install VSTest if not installed
+Write-Host "🔹 Installing VSTest..."
+if (-Not (Get-Command vstest.console.exe -ErrorAction SilentlyContinue)) {
+    Install-Package Microsoft.TestPlatform -Source "https://repos.gbt.gbtad.com/repository/nuget-api-v3/index.json"
+}
+
+# Run tests
+Write-Host "🔹 Running Tests..."
+$command = "vstest.console.exe `"$SearchFolder\$TestAssembly`" /Platform:$Platform"
+if ($CodeCoverageEnabled -eq "true") {
+    $command += " /EnableCodeCoverage"
+}
+
+Invoke-Expression $command
