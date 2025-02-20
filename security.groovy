@@ -1,46 +1,37 @@
-name: templates_build_task_groups_snyk_dotnet_scantaskgroup
+name: templates_build_task_groups_sonarqube_post_buildtaskgroup
 
 inputs:
-  SnykScanEnabled:
-    required: false
-    default: true
-    type: boolean
-  SnykSolutionFile:
-    required: false
-    type: string
-  SnykAuthToken:
-    required: false
-    type: string
-  SnykOrg:
-    required: false
-    type: string
-  SnykProjectName:
+  SonarQubeProjectName:
     required: false
     type: string
 
 runs:
   using: composite
   steps:
-    - name: Authenticate with Snyk
-      if: success() && inputs.SnykScanEnabled == 'true'
-      continue-on-error: true
-      shell: powershell
-      run: d:\snyk\snyk.exe auth ${{ inputs.SnykAuthToken }}
-
-    - name: Run Snyk Code Scan
-      if: success() && inputs.SnykScanEnabled == 'true'
+    - name: Remove sonar.branch.name Variable
       continue-on-error: true
       shell: powershell
       run: |
-        Write-Host "Running Snyk scan..."
-        $buildNumber = $env:BUILD_BUILDNUMBER.Replace('.', '_')
-        d:\snyk\snyk.exe code test --org=${{ inputs.SnykOrg }} --sarif-file-output=results.sarif --file=${{ inputs.SnykSolutionFile }} --severity-threshold=medium --insecure --debug
-        d:\snyk\snyk-to-html.exe -o ${{ runner.temp }}/results-code.html -i results.sarif
-        d:\snyk\snyk.exe code test --org=${{ inputs.SnykOrg }} --report --project-name=${{ inputs.SnykProjectName }} --severity-threshold=medium --insecure --debug
+        $sonarSettings= $Env:SONARQUBE_SCANNER_PARAMS | ConvertFrom-Json
+        $sonarSettings.PSObject.Properties.Remove("sonar.branch.name")
+        $updatedSonarSettings = $sonarSettings | ConvertTo-Json -compress
+        Write-Host "##vso[task.setvariable variable=SONARQUBE_SCANNER_PARAMS]$updatedSonarSettings"
+        Write-Host $updatedSonarSettings
 
-    - name: Publish Snyk Scan Report
-      if: always() # Ensures it runs even if the scan fails
-      uses: actions/upload-artifact@v3
-      with:
-        name: snyk-code-scan-results
-        path: ${{ runner.temp }}/results-code.html
+    - name: Run SonarQube Analysis
+      continue-on-error: true
+      shell: bash
+      run: |
+        echo "Running SonarQube Analysis..."
+        sonar-scanner \
+          -Dsonar.projectKey=${{ inputs.SonarQubeProjectName }} \
+          -Dsonar.sources=. \
+          -Dsonar.host.url=$SONARQUBE_URL \
+          -Dsonar.login=$SONARQUBE_TOKEN
+
+    - name: Publish SonarQube Result
+      continue-on-error: true
+      shell: bash
+      run: |
+        echo "Publishing SonarQube Result..."
+        curl -u $SONARQUBE_TOKEN: "$SONARQUBE_URL/api/qualitygates/project_status?projectKey=${{ inputs.SonarQubeProjectName }}"
