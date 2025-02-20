@@ -11,6 +11,12 @@ inputs:
     required: false
     default: GBT Code Analysis
     type: string
+  SonarQubeUrl:  # NEW INPUT for URL
+    required: true
+    type: string
+  SonarQubeToken:  # NEW INPUT for Token
+    required: true
+    type: string
 
 runs:
   using: composite
@@ -34,24 +40,28 @@ runs:
         }
         gci -path ${{ github.workspace }} -Filter *.csproj -Recurse | % { update-project-file $_ }
 
-    - name: Install SonarScanner for .NET
+    - name: Install SonarScanner (Temporary)
       shell: bash
       run: |
-        dotnet tool install --global dotnet-sonarscanner
-        echo "SonarScanner installed"
+        mkdir -p sonar-tools
+        dotnet tool install --tool-path sonar-tools dotnet-sonarscanner
+        echo "SONAR_SCANNER_PATH=$(pwd)/sonar-tools/dotnet-sonarscanner" >> $GITHUB_ENV
+        echo "SonarScanner installed temporarily"
 
     - name: Prepare SonarQube for Scan
       shell: bash
       run: |
         echo "Preparing SonarQube for scan..."
-        dotnet-sonarscanner begin \
+        $SONAR_SCANNER_PATH begin \
           /k:"${{ inputs.SonarQubeProjectName }}" \
-          /d:sonar.host.url="$SONARQUBE_URL" \
-          /d:sonar.login="$SONARQUBE_TOKEN" \
+          /d:sonar.host.url="${{ inputs.SonarQubeUrl }}" \
+          /d:sonar.login="${{ inputs.SonarQubeToken }}" \
           /d:sonar.projectVersion="${{ github.run_number }}" \
           /d:sonar.exclusions="${{ inputs.SonarQubeExclusions }}" \
           /d:sonar.test.exclusions="${{ inputs.SonarQubeExclusions }}" \
           /d:sonar.coverage.exclusions="**/*Tests*.cs,**/Models/**/*,**/Data/**/*,**/Program.cs,**/Startup.cs,${{ inputs.SonarQubeExclusions }}"
-      env:
-        SONARQUBE_URL: ${{ secrets.SONARQUBE_URL }}
-        SONARQUBE_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
+
+    - name: Remove SonarScanner After Execution
+      if: always()
+      shell: bash
+      run: rm -rf sonar-tools
