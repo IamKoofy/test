@@ -1,70 +1,39 @@
-name: templates_build_task_groups_sonarqube_pre_build_vstesttaskgroup
+# pipeline-vars.yml
+NUGET_AUTH_TOKEN: your-secret-token
+NUGET_FEED_URL: https://your-nuget-feed-url
 
-inputs:
-  SonarQubeProjectName:
-    required: false
-    type: string
-  SonarQubeExclusions:
-    required: false
-    type: string
-  SonarQubeServiceConnection:
-    required: false
-    default: GBT Code Analysis
-    type: string
-  SonarQubeUrl:  # NEW INPUT for URL
-    required: true
-    type: string
-  SonarQubeToken:  # NEW INPUT for Token
-    required: true
-    type: string
+MAJOR_VERSION: 1
+MINOR_VERSION: 0
+BUILD_NUMBER: 123
+REVISION: 0
 
-runs:
-  using: composite
-  steps:
-    - name: Prepare Project Files for SonarQube Scan
-      shell: pwsh
-      run: |
-        function Update-ProjectFile($file) {
-          $fileContent = Get-Content -Path $file.FullName
-          if ($fileContent -match "<ProjectGuid>") {
-            Write-Host "$($file.Name) already has a project id assigned"
-            return
-          }
-          [xml]$xmlFile = $fileContent
-          $node = $xmlFile.SelectSingleNode("//Project/PropertyGroup")
-          $child = $xmlFile.CreateElement("ProjectGuid")
-          $child.InnerText = "{"+[guid]::NewGuid().ToString().ToUpper()+"}"
-          $node.AppendChild($child)
-          $xmlFile.Save($file.FullName)
-          Write-Host "$($file.Name) has been assigned a new project id"
-        }
-        Get-ChildItem -Path ${{ github.workspace }} -Filter *.csproj -Recurse | ForEach-Object { Update-ProjectFile $_ }
+SOLUTION_FILE: path/to/solution.sln
+PATH_TO_PROJECT: src/YourProject
+PATH_TO_TEST_PROJECT: tests/YourTestProject
+COMPONENT_NAME: YourComponent
+BUILD_CONFIGURATION: Release
 
-    - name: Install SonarScanner (Temporary)
-      shell: pwsh
-      run: |
-        $sonarScannerPath = "$env:GITHUB_WORKSPACE\sonar-tools"
-        New-Item -ItemType Directory -Path $sonarScannerPath -Force
-        dotnet tool install --tool-path $sonarScannerPath dotnet-sonarscanner
-        echo "SONAR_SCANNER_PATH=$sonarScannerPath\dotnet-sonarscanner.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
-        Write-Host "SonarScanner installed temporarily"
+SONARQUBE_PROJECT_NAME: YourProject
+SONARQUBE_EXCLUSIONS: "**/*.test.cs"
+SONARQUBE_SERVICE_CONNECTION: GBT Code Analysis
 
-    - name: Prepare SonarQube for Scan
-      shell: pwsh
-      run: |
-        Write-Host "Preparing SonarQube for scan..."
-        & $env:SONAR_SCANNER_PATH begin `
-          /k:"${{ inputs.SonarQubeProjectName }}" `
-          /d:sonar.host.url="${{ inputs.SonarQubeUrl }}" `
-          /d:sonar.login="${{ inputs.SonarQubeToken }}" `
-          /d:sonar.projectVersion="${{ github.run_number }}" `
-          /d:sonar.exclusions="${{ inputs.SonarQubeExclusions }}" `
-          /d:sonar.test.exclusions="${{ inputs.SonarQubeExclusions }}" `
-          /d:sonar.coverage.exclusions="**/*Tests*.cs,**/Models/**/*,**/Data/**/*,**/Program.cs,**/Startup.cs,${{ inputs.SonarQubeExclusions }}"
+SNYK_SCAN_ENABLED: true
+SNYK_AUTH_TOKEN: your-snyk-token
+SNYK_ORG: your-org
+SNYK_PROJECT_NAME: your-project
 
-    - name: Remove SonarScanner After Execution
-      if: always()
-      shell: pwsh
-      run: |
-        Remove-Item -Path "$env:GITHUB_WORKSPACE\sonar-tools" -Recurse -Force
-        Write-Host "SonarScanner removed after execution"
+
+
+
+
+
+ - name: Load Pipeline Variables
+        id: load-vars
+        shell: bash
+        run: |
+          echo "Loading pipeline variables from pipeline-vars.yml"
+          while IFS=": " read -r key value; do
+            if [[ ! -z "$key" && ! "$key" =~ ^# ]]; then
+              echo "$key=${value}" >> $GITHUB_ENV
+            fi
+          done < pipeline-vars.yml
