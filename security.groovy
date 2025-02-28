@@ -3,34 +3,40 @@ param(
     [string]$SourceUrl
 )
 
-Write-Host "Checking if .NET SDK version $DotnetVersion is installed..."
+Write-Host "Checking installed .NET SDK versions..."
 
-# Get the list of installed .NET SDK versions
-$dotnetPath = "$env:ProgramFiles\dotnet"
-$installedVersions = Get-ChildItem -Path "$dotnetPath\sdk" -Name
+$dotnetBasePath = "C:\Program Files\dotnet"
+$dotnetSdkPath = "$dotnetBasePath\sdk"
+
+if (!(Test-Path $dotnetSdkPath)) {
+    Write-Host "Error: .NET SDK directory does not exist at $dotnetSdkPath"
+    exit 1
+}
+
+$installedVersions = Get-ChildItem -Path $dotnetSdkPath | Select-Object -ExpandProperty Name
+
+Write-Host "Installed .NET SDK versions:"
+Write-Host $installedVersions
 
 if ($installedVersions -contains $DotnetVersion) {
     Write-Host ".NET SDK version $DotnetVersion is installed."
 } else {
-    Write-Host "Error: .NET SDK version $DotnetVersion is not installed on this agent."
+    Write-Host "Error: .NET SDK version $DotnetVersion is NOT installed on this agent."
     exit 1
 }
 
-# Set DOTNET_ROOT and update PATH
-[System.Environment]::SetEnvironmentVariable("DOTNET_ROOT", $dotnetPath, [System.EnvironmentVariableTarget]::Process)
-$env:Path = "$dotnetPath;$dotnetPath\tools;$env:Path"
+$env:Path = "$dotnetBasePath;$env:Path"
+[System.Environment]::SetEnvironmentVariable("DOTNET_ROOT", $dotnetBasePath, [System.EnvironmentVariableTarget]::Process)
 
 Write-Host "Updated PATH: $env:Path"
 
-# Set Global JSON for correct SDK selection
 $globalJsonPath = "$env:GITHUB_WORKSPACE\global.json"
 $jsonContent = "{""sdk"": {""version"": ""$DotnetVersion""}}"
 $jsonContent | Out-File -FilePath $globalJsonPath -Encoding utf8
 
 Write-Host "Created global.json to use .NET SDK $DotnetVersion"
 
-# Verify the active .NET version
-$activeVersion = & "$dotnetPath\dotnet.exe" --version
+$activeVersion = & "$dotnetBasePath\dotnet.exe" --version
 Write-Host "Active .NET SDK version: $activeVersion"
 
 if ($activeVersion -like "$DotnetVersion*") {
@@ -39,10 +45,9 @@ if ($activeVersion -like "$DotnetVersion*") {
     Write-Host "Warning: The active .NET SDK version ($activeVersion) does not match the expected version ($DotnetVersion)."
 }
 
-# Set NuGet Source URL if provided
 if ($SourceUrl -ne "") {
     Write-Host "Configuring NuGet Source: $SourceUrl"
-    dotnet nuget add source $SourceUrl --name "internal-nuget"
+    & "$dotnetBasePath\dotnet.exe" nuget add source $SourceUrl --name "internal-nuget"
 }
 
 Write-Host ".NET SDK setup completed successfully."
