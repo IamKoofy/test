@@ -5,19 +5,19 @@ param(
 
 Write-Host "Checking if .NET SDK version $DotnetVersion is installed..."
 
-# Get the list of installed .NET SDKs
-$installedVersions = & "$env:ProgramFiles\dotnet\dotnet.exe" --list-sdks | ForEach-Object { ($_ -split " ")[0] }
+# Get the list of installed .NET SDK versions
+$dotnetPath = "$env:ProgramFiles\dotnet"
+$installedVersions = Get-ChildItem -Path "$dotnetPath\sdk" -Name
 
 if ($installedVersions -contains $DotnetVersion) {
-    Write-Host ".NET SDK version $DotnetVersion is already installed."
+    Write-Host ".NET SDK version $DotnetVersion is installed."
 } else {
     Write-Host "Error: .NET SDK version $DotnetVersion is not installed on this agent."
     exit 1
 }
 
 # Set DOTNET_ROOT and update PATH
-$dotnetPath = "$env:ProgramFiles\dotnet"
-[System.Environment]::SetEnvironmentVariable("DOTNET_ROOT", $dotnetPath, [System.EnvironmentVariableTarget]::Machine)
+[System.Environment]::SetEnvironmentVariable("DOTNET_ROOT", $dotnetPath, [System.EnvironmentVariableTarget]::Process)
 $env:Path = "$dotnetPath;$dotnetPath\tools;$env:Path"
 
 Write-Host "Updated PATH: $env:Path"
