@@ -1,179 +1,115 @@
-name: "Build Application"
-description: "Composite action to build and push the application"
+name: Build and Scan
 
-inputs:
-  ProjectDirectory:
-    required: true
-    type: string
-  GithubRepo:
-    required: true
-    type: string
-  Branch:
-    required: true
-    type: string
-  LintingEnabled:
-    required: false
-    type: boolean
-    default: true
-  TypescriptCheckingEnabled:
-    required: false
-    type: boolean
-    default: true
-  YarnBuildArgs:
-    required: false
-    type: string
-  EnvFilePath:
-    required: false
-    type: string
-  EnvBuildNumberUpdateEnabled:
-    required: false
-    type: boolean
-    default: false
-  EnvBuildNumberFieldName:
-    required: false
-    type: string
-    default: ''
-  EnvReleaseDateFieldName:
-    required: false
-    type: string
-    default: 'RELEASE_DATE'
-  MajorVersion:
-    required: true
-    type: string
-  MinorVersion:
-    required: true
-    type: string
-  BuildNumber:
-    required: true
-    type: string
-  Rev:
-    required: true
-    type: string
-  Dockerfile:
-    required: true
-    type: string
-  DockerVersionArgs:
-    required: false
-    type: string
-    default: '${{ github.run_number }}'
-  DockerRepo:
-    required: true
-    type: string
-  DockerImageName:
-    required: true
-    type: string
-  DockerFolder:
-    required: true
-    type: string
-  SnykScanEnabled:
-    required: false
-    type: boolean
-    default: true
-  SnykAuthToken:
-    required: false
-    type: string
-  SnykOrg:
-    required: false
-    type: string
-  SnykProjectName:
-    required: false
-    type: string
-  SonarQubeProjectName:
-    required: false
-    type: string
-  SonarQubeExclusions:
-    required: false
-    type: string
-  SonarQubeCoverageReportPaths:
-    required: false
-    type: string
-  SonarQubeTextExecutionReportPaths:
-    required: false
-    type: string
-  SonarQubeServiceConnection:
-    required: false
-    type: string
-    default: 'GBT Code Analysis'
-  SonarQubeSources:
-    required: false
-    type: string
-  SonarQubeTestSources:
-    required: false
-    type: string
-  SonarprojectBaseDir:
-    required: false
-    type: string
+on:
+  workflow_dispatch:
 
-runs:
-  using: "composite"
-  steps:
-    - name: Clone GitHub Repo
-      shell: pwsh
-      run: |
-        git clone -b ${{ inputs.Branch }} ${{ inputs.GithubRepo }}
-        Write-Host "Repo cloned successfully"
+env:
+  GIT_PAT: ${{ secrets.GIT_PAT }}
+  SNYK_AUTH_TOKEN: ${{ secrets.SNYK_AUTH_TOKEN }}
+  SNYK_ORG: ${{ secrets.SNYK_ORG }}
+  SNYK_PROJECT_NAME: ${{ secrets.SNYK_PROJECT_NAME }}
+  SONARQUBE_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
+  GIT_ACCESS_TOKEN: ${{ secrets.GIT_ACCESS_TOKEN }}
 
-    - name: Version the Application
-      shell: pwsh
-      run: |
-        $buildNumber="${{ inputs.BuildNumber }}"
-        $rev="${{ inputs.Rev }}"
-        if ($buildNumber.Trim().ToLower() -eq 'auto') {
-          $year = get-date –format yy
-          $dayNumber=(Get-Date).DayOfYear.ToString().PadLeft(3,'0')
-          $buildNumber="$year$dayNumber"
-        }
-        if ($rev.Trim().ToLower() -eq 'auto') {
-          $split = $(${GITHUB_RUN_NUMBER}).Split('.')
-          $rev = $split[$split.Count - 1]
-        }
-        $newBuildNumber = "${{inputs.MajorVersion}}.${{inputs.MinorVersion}}.$buildNumber.$rev"
-        Write-Host "New Build Number: $newBuildNumber"
+jobs:
+  build-app:
+    runs-on: [self-hosted, windows]
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
 
-    - name: Restore Packages
-      shell: pwsh
-      run: |
-        cd ${{ inputs.ProjectDirectory }}
-        yarn install
+      - name: Load Pipeline Variables
+        id: load-vars
+        shell: powershell
+        run: |
+          Write-Host "Loading pipeline variables from Build.vars.yml"
+          $yamlPath = "$env:GITHUB_WORKSPACE/.github/workflows/Build.vars.yml"
+          if (Test-Path $yamlPath) {
+            $content = Get-Content $yamlPath | Where-Object {$_ -match '^\s*[^#]'} # Ignore comments
+            foreach ($line in $content) {
+              $key, $value = $line -split ":\s*", 2
+              if ($key -and $value) {
+                echo "$key=$value" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+                echo "::set-output name=$key::$value"
+              }
+            }
+          } else {
+            Write-Error "Build.vars.yml not found!"
+            exit 1
+          }
 
-    - name: Lint Code
-      if: inputs.LintingEnabled == 'true'
-      shell: pwsh
-      run: |
-        cd ${{ inputs.ProjectDirectory }}
-        yarn run lint:cache
+      - name: Debug
+        shell: powershell
+        run: Get-ChildItem -Path Env:* | Sort-Object Name | Format-Table -AutoSize
 
-    - name: Run TypeScript Checks
-      if: inputs.TypescriptCheckingEnabled == 'true'
-      shell: pwsh
-      run: |
-        cd ${{ inputs.ProjectDirectory }}
-        yarn run ts
+      - name: Clone GitHub Templates Repo
+        shell: powershell
+        run: |
+          Write-Host "Cloning Git templates"
+          $tempDir = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP/templates"
+          git clone https://$env:GIT_PAT@github.com/gbtg-devops/Azure-Pipelines.git $tempDir
+          cd $tempDir
+          git checkout main
 
-    - name: Run Tests
-      shell: pwsh
-      run: |
-        cd ${{ inputs.ProjectDirectory }}
-        yarn run test:coverage
+      - name: Clone GitHub Repo
+        shell: powershell
+        run: |
+          Write-Host "Cloning Git repo"
+          $tempDir = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP/MilkyWayTravelConfirmation"
+          git clone https://$env:GIT_PAT@github.com/AEGBT/MilkyWay-TravelConfirmation.git $tempDir
+          cd $tempDir
+          git checkout main
 
-    - name: Yarn Build
-      shell: pwsh
-      run: |
-        cd ${{ inputs.ProjectDirectory }}
-        yarn run ${{ inputs.YarnBuildArgs }}
+      - name: Clone Test Templates
+        shell: powershell
+        run: |
+          Write-Host "Cloning test templates"
+          $tempDir = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP/test-templates"
+          git clone https://$env:GIT_PAT@github.com/AMEX-GBTG-Sandbox/test-templates.git $tempDir
 
-    - name: Docker Build
-      uses: ./task-groups/docker-build
-      with:
-        Dockerfile: ${{ inputs.Dockerfile }}
-        DockerRepo: ${{ inputs.DockerRepo }}
-        DockerImageName: ${{ inputs.DockerImageName }}
-        DockerVersionArgs: ${{ inputs.DockerVersionArgs }}
-        DockerFolder: ${{ inputs.DockerFolder }}
+      - name: Clone Shared Library
+        shell: powershell
+        run: |
+          Write-Host "Cloning shared library"
+          $tempDir = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP/github-actions-shared-lib"
+          git clone https://$env:GIT_PAT@github.com/AMEX-GBTG-Sandbox/github-actions-shared-lib $tempDir
 
-    - name: Docker Push
-      uses: ./task-groups/docker-push
-      with:
-        DockerRepo: ${{ inputs.DockerRepo }}
-        DockerImageName: ${{ inputs.DockerImageName }}
-        DockerVersionArgs: ${{ inputs.DockerVersionArgs }}
+      - name: Debug Workspace
+        shell: powershell
+        run: |
+          Write-Host "Current Directory: $PWD"
+          Get-ChildItem -Path $env:RUNNER_TEMP -Recurse
+
+      - name: Run Build and Scanning Steps
+        uses: AMEX-GBTG-Sandbox/test-templates/.github/actions/hrg-dotnet-framework.template@main
+        with:
+          GithubRepo: ${{ env.GithubRepo }}
+          Branch: ${{ env.Branch }}
+          ProjectDirectory: ${{ env.ProjectDirectory }}
+          SonarprojectBaseDir: ${{ env.SonarprojectBaseDir }}
+          LintingEnabled: false
+          TypescriptCheckingEnabled: false
+          YarnBuildArgs: 'build'
+          EnvFilePath: ${{ env.EnvFilePath }}
+          EnvBuildNumberUpdateEnabled: true
+          EnvBuildNumberFieldName: 'REACT_APP_ELT_VERSION'
+          MajorVersion: ${{ env.MajorVersion }}
+          MinorVersion: ${{ env.MinorVersion }}
+          BuildNumber: ${{ env.BuildNumber }}
+          Rev: ${{ env.Rev }}
+          Dockerfile: ${{ env.Dockerfile }}
+          DockerVersionArgs: ${{ env.Build.BuildNumber }}
+          DockerRepo: ${{ env.DockerDevRepo }}
+          DockerImageName: ${{ env.DockerImageName }}
+          DockerFolder: ${{ env.DockerFolder }}
+          SonarQubeProjectName: ${{ env.SonarProjectName }}
+          SonarQubeExclusions: ${{ env.SonarExclusion }}
+          SonarQubeCoverageReportPaths: ${{ env.SonarQubeCoverageReportPaths }}
+          SonarQubeTextExecutionReportPaths: ${{ env.SonarQubeTextExecutionReportPaths }}
+          SonarQubeSources: ${{ env.SonarQubeSources }}
+          SonarQubeTestSources: ${{ env.SonarQubeTestSources }}
+          SnykAuthToken: ${{ secrets.SNYK_AUTH_TOKEN }}
+          SnykOrg: ${{ secrets.SNYK_ORG }}
+          SnykProjectName: ${{ secrets.SNYK_PROJECT_NAME }}
+          token: ${{ secrets.GIT_PAT }}
+          git_access_token: ${{ secrets.GIT_ACCESS_TOKEN }}
