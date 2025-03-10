@@ -1,25 +1,18 @@
-GithubRepo: AEGBT/MilkyWay-TravelConfirmation
-Branch: main
-ProjectDirectory: src
-SonarprojectBaseDir: src
-LintingEnabled: false
-TypescriptCheckingEnabled: false
-YarnBuildArgs: 'build'
-EnvFilePath: .env
-EnvBuildNumberUpdateEnabled: true
-EnvBuildNumberFieldName: 'REACT_APP_ELT_VERSION'
-MajorVersion: 1
-MinorVersion: 0
-BuildNumber: 1
-Rev: 0
-Dockerfile: Dockerfile
-DockerVersionArgs: '$(Build.BuildNumber)'
-DockerRepo: dockerhub.io/your-repo
-DockerImageName: your-image-name
-DockerFolder: docker
-SonarQubeProjectName: YourProject
-SonarQubeExclusions: '**/node_modules/**,**/*.spec.ts'
-SonarQubeCoverageReportPaths: coverage/lcov.info
-SonarQubeTextExecutionReportPaths: reports/test-execution.xml
-SonarQubeSources: src
-SonarQubeTestSources: test
+- name: Version the Application
+      shell: pwsh
+      run: |
+        $buildNumber = "${{ inputs.BuildNumber }}"
+        $rev = "${{ inputs.Rev }}"
+        
+        if ($buildNumber.Trim().ToLower() -eq 'auto') {
+          $year = (Get-Date -Format "yy")
+          $dayNumber = (Get-Date).DayOfYear.ToString().PadLeft(3, '0')
+          $buildNumber = "$year$dayNumber"
+        }
+
+        if ($rev.Trim().ToLower() -eq 'auto') {
+          $rev = "${{ github.run_number }}"
+        }
+
+        $newBuildNumber = "${{ inputs.MajorVersion }}.${{ inputs.MinorVersion }}.$buildNumber.$rev"
+        Write-Host "New Build Number: $newBuildNumber"
