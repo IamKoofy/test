@@ -1,10 +1,15 @@
 name: 'Deploy to OpenShift'
 
 on:
-  workflow_run:
-    workflows: ["Adservice Build"]
-    types:
-      - completed
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Select Environment to Deploy'
+        required: true
+        type: choice
+        options:
+          - Dev
+          - Cert
 
 jobs:
   deploy:
@@ -19,18 +24,26 @@ jobs:
         with:
           cmd: yq eval '. | to_entries | map("::set-output name=\(.key)::\(.value)") | .[]' .github/workflows/vars/release-vars.yml
 
-      - name: Deploy to OpenShift
+      - name: Deploy to OpenShift (Dev)
+        if: github.event.inputs.environment == 'Dev'
         uses: ./.github/actions/deploy-openshift
         with:
-          E1OpenShiftUrl: ${{ steps.vars.outputs.E1OpenShiftUrl }}
-          E1OpenShiftToken: ${{ steps.vars.outputs.E1OpenShiftToken }}
-          DeployToCert: ${{ steps.vars.outputs.DeployToCert }}
-          E2OpenShiftUrl: ${{ steps.vars.outputs.E2OpenShiftUrl }}
-          E2OpenShiftToken: ${{ steps.vars.outputs.E2OpenShiftToken }}
+          OpenShiftUrl: ${{ steps.vars.outputs.E1OpenShiftUrl }}
+          OpenShiftToken: ${{ steps.vars.outputs.E1OpenShiftToken }}
           OpenShiftProjectName: ${{ steps.vars.outputs.OpenShiftProjectName }}
           DeploymentConfigName: ${{ steps.vars.outputs.DeploymentConfigName }}
           ContainerName: ${{ steps.vars.outputs.ContainerName }}
-          DockerDevRepo: ${{ steps.vars.outputs.DockerDevRepo }}
-          DockerCertRepo: ${{ steps.vars.outputs.DockerCertRepo }}
+          DockerRepo: ${{ steps.vars.outputs.DockerDevRepo }}
           DockerImageName: "my-docker-image:${{ github.run_number }}"
-          CertApprovalEmail: ${{ steps.vars.outputs.CertApprovalEmail }}
+          
+      - name: Deploy to OpenShift (Cert)
+        if: github.event.inputs.environment == 'Cert'
+        uses: ./.github/actions/deploy-openshift
+        with:
+          OpenShiftUrl: ${{ steps.vars.outputs.E2OpenShiftUrl }}
+          OpenShiftToken: ${{ steps.vars.outputs.E2OpenShiftToken }}
+          OpenShiftProjectName: ${{ steps.vars.outputs.OpenShiftProjectName }}
+          DeploymentConfigName: ${{ steps.vars.outputs.DeploymentConfigName }}
+          ContainerName: ${{ steps.vars.outputs.ContainerName }}
+          DockerRepo: ${{ steps.vars.outputs.DockerCertRepo }}
+          DockerImageName: "my-docker-image:${{ github.run_number }}"
