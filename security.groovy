@@ -1,32 +1,40 @@
-name: "Docker Build"
-description: "Composite action to build a Docker image"
-
+name: 'Push Docker Image'
+description: 'Pushes a Docker image and cleans up unused images'
 inputs:
-  Dockerfile:
+  docker_repo:
+    description: 'Docker Repository'
     required: true
-    type: string
-  DockerRepo:
+  docker_image_name:
+    description: 'Docker Image Name'
     required: true
-    type: string
-  DockerImageName:
+  docker_version_args:
+    description: 'Docker Version/Tag'
     required: true
-    type: string
-  DockerVersionArgs:
+  docker_username:
+    description: 'Docker Username'
     required: true
-    type: string
-  DockerContext:
+  docker_password:
+    description: 'Docker Password'
     required: true
-    type: string
-  DockerFolder:
-    required: false
-    type: string
-    default: 'C:\DockerShare'
-
 runs:
   using: "composite"
   steps:
-    - name: Build Docker Image
-      shell: pwsh
+    - name: Login to Docker Registry
+      shell: bash
       run: |
-        docker context use "${{ inputs.DockerContext }}"
-        docker build -f "${{ inputs.Dockerfile }}" -t "${{ inputs.DockerRepo }}/${{ inputs.DockerImageName }}:${{ inputs.DockerVersionArgs }}" "${{ inputs.DockerFolder }}"
+        echo "${{ inputs.docker_password }}" | docker login --username "${{ inputs.docker_username }}" --password-stdin ${{ inputs.docker_repo }}
+
+    - name: Push Docker Image
+      shell: bash
+      run: |
+        docker push ${{ inputs.docker_repo }}/${{ inputs.docker_image_name }}:${{ inputs.docker_version_args }}
+
+    - name: Remove Dangling Images
+      uses: ./.github/actions/remove-dangling-docker-images
+
+    - name: Remove Local Copy of Docker Image
+      shell: bash
+      run: |
+        app_image_id=$(docker images -q ${{ inputs.docker_repo }}/${{ inputs.docker_image_name }}:${{ inputs.docker_version_args }})
+        docker image rm $app_image_id -f
+        docker context use default
