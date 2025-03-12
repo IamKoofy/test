@@ -1,42 +1,40 @@
-name: Build and Push Docker Image
+name: Build and Push Image
 
 on:
   workflow_dispatch:
     inputs:
-      docker_image_name:
-        description: "Docker Image Name"
+      environment:
+        description: "Select the deployment environment"
         required: true
-        default: "my-app"
+        default: "Dev"
+        type: choice
+        options:
+          - Dev
+          - Cert
 
 jobs:
-  build:
+  build-and-push:
     runs-on: windows-latest
+    env:
+      DOCKER_IMAGE_TAG: my-image:${{ github.run_number }}
+    
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Log in to Docker Registry
-        shell: powershell
-        run: |
-          echo "${{ secrets.DOCKER_REGISTRY_PASSWORD }}" | docker login ${{ secrets.DOCKER_REGISTRY_URL }} -u "${{ secrets.DOCKER_REGISTRY_USERNAME }}" --password-stdin
-
-      - name: Build Docker Image
-        shell: powershell
-        run: |
-          $tag = "${{ secrets.DOCKER_REGISTRY_URL }}/${{ github.event.inputs.docker_image_name }}:${{ github.run_number }}"
-          docker build -t $tag .
-          echo "DOCKER_IMAGE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
-
-      - name: Push Docker Image
-        shell: powershell
-        run: |
-          docker push "${{ env.DOCKER_IMAGE_TAG }}"
-
       - name: Trigger Deployment Workflow
         shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/dispatches" `
-            -Method POST `
-            -Headers @{Authorization = "token ${{ secrets.GITHUB_TOKEN }}"; Accept = "application/vnd.github.v3+json"} `
-            -Body (@{ref="main"; inputs=@{docker_image_tag="${{ env.DOCKER_IMAGE_TAG }}"}} | ConvertTo-Json -Compress)
+          $jsonPayload = @{
+            ref = "main"
+            inputs = @{
+              environment = "${{ github.event.inputs.environment }}"  # Pass user-selected value
+              docker_image_tag = "${{ env.DOCKER_IMAGE_TAG }}"
+            }
+          } | ConvertTo-Json -Compress -Depth 3
 
+          Invoke-WebRequest -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/release.yml/dispatches" `
+            -Method POST `
+            -Headers @{
+              Authorization = "token ${{ secrets.GITHUB_TOKEN }}"
+              Accept = "application/vnd.github.v3+json"
+              "Content-Type" = "application/json"
+            } `
+            -Body $jsonPayload
