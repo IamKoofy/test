@@ -1,36 +1,42 @@
-name: "Deploy to Dev OpenShift"
-description: "Deploys a Docker image to Dev (E1) OpenShift"
+name: Build and Push Docker Image
 
-inputs:
-  E1OpenShiftUrl:
-    required: true
-    description: "OpenShift Dev (E1) API URL"
-  E1OpenShiftToken:
-    required: true
-    description: "OpenShift Dev (E1) Authentication Token"
-  OpenShiftProjectName:
-    required: true
-    description: "OpenShift Project Name"
-  DeploymentConfigName:
-    required: true
-    description: "OpenShift Deployment Config Name"
-  ContainerName:
-    required: true
-    description: "Container Name"
-  DockerImageName:
-    required: true
-    description: "Docker Image Name"
+on:
+  workflow_dispatch:
+    inputs:
+      docker_image_name:
+        description: "Docker Image Name"
+        required: true
+        default: "my-app"
 
-runs:
-  using: "composite"
-  steps:
-    - name: Deploy Image to OpenShift Dev (E1)
-      shell: powershell
-      run: |
-        & "C:\scripts\deploy-docker-image.ps1" `
-          -ocurl "${{ inputs.E1OpenShiftUrl }}" `
-          -octoken "${{ inputs.E1OpenShiftToken }}" `
-          -project "${{ inputs.OpenShiftProjectName }}" `
-          -dcname "${{ inputs.DeploymentConfigName }}" `
-          -container "${{ inputs.ContainerName }}" `
-          -image "${{ inputs.DockerImageName }}"
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Registry
+        shell: powershell
+        run: |
+          echo "${{ secrets.DOCKER_REGISTRY_PASSWORD }}" | docker login ${{ secrets.DOCKER_REGISTRY_URL }} -u "${{ secrets.DOCKER_REGISTRY_USERNAME }}" --password-stdin
+
+      - name: Build Docker Image
+        shell: powershell
+        run: |
+          $tag = "${{ secrets.DOCKER_REGISTRY_URL }}/${{ github.event.inputs.docker_image_name }}:${{ github.run_number }}"
+          docker build -t $tag .
+          echo "DOCKER_IMAGE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      - name: Push Docker Image
+        shell: powershell
+        run: |
+          docker push "${{ env.DOCKER_IMAGE_TAG }}"
+
+      - name: Trigger Deployment Workflow
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/dispatches" `
+            -Method POST `
+            -Headers @{Authorization = "token ${{ secrets.GITHUB_TOKEN }}"; Accept = "application/vnd.github.v3+json"} `
+            -Body (@{ref="main"; inputs=@{docker_image_tag="${{ env.DOCKER_IMAGE_TAG }}"}} | ConvertTo-Json -Compress)
+
