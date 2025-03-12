@@ -1,4 +1,4 @@
-name: Build and Push Image
+name: Deploy Image to OpenShift
 
 on:
   workflow_dispatch:
@@ -6,35 +6,37 @@ on:
       environment:
         description: "Select the deployment environment"
         required: true
-        default: "Dev"
-        type: choice
-        options:
-          - Dev
-          - Cert
+        type: string
+      docker_image_tag:
+        description: "Docker image tag"
+        required: true
+        type: string
 
 jobs:
-  build-and-push:
+  deploy:
     runs-on: windows-latest
-    env:
-      DOCKER_IMAGE_TAG: my-image:${{ github.run_number }}
-    
+
     steps:
-      - name: Trigger Deployment Workflow
+      - name: Set OpenShift Variables
         shell: powershell
         run: |
-          $jsonPayload = @{
-            ref = "main"
-            inputs = @{
-              environment = "${{ github.event.inputs.environment }}"  # Pass user-selected value
-              docker_image_tag = "${{ env.DOCKER_IMAGE_TAG }}"
-            }
-          } | ConvertTo-Json -Compress -Depth 3
+          if ("${{ github.event.inputs.environment }}" -eq "Dev") {
+            echo "OPENSHIFT_URL=dev.openshift.com" | Out-File -Append -FilePath $Env:GITHUB_ENV
+            echo "OPENSHIFT_TOKEN=${{ secrets.OPENSHIFT_DEV_TOKEN }}" | Out-File -Append -FilePath $Env:GITHUB_ENV
+            echo "DOCKER_REPO=${{ secrets.DOCKER_DEV_REPO }}" | Out-File -Append -FilePath $Env:GITHUB_ENV
+          } elseif ("${{ github.event.inputs.environment }}" -eq "Cert") {
+            echo "OPENSHIFT_URL=cert.openshift.com" | Out-File -Append -FilePath $Env:GITHUB_ENV
+            echo "OPENSHIFT_TOKEN=${{ secrets.OPENSHIFT_CERT_TOKEN }}" | Out-File -Append -FilePath $Env:GITHUB_ENV
+            echo "DOCKER_REPO=${{ secrets.DOCKER_CERT_REPO }}" | Out-File -Append -FilePath $Env:GITHUB_ENV
+          }
 
-          Invoke-WebRequest -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/release.yml/dispatches" `
-            -Method POST `
-            -Headers @{
-              Authorization = "token ${{ secrets.GITHUB_TOKEN }}"
-              Accept = "application/vnd.github.v3+json"
-              "Content-Type" = "application/json"
-            } `
-            -Body $jsonPayload
+      - name: Deploy to OpenShift
+        shell: powershell
+        run: |
+          & c:\scripts\deploy-docker-image.ps1 `
+            -ocurl $Env:OPENSHIFT_URL `
+            -octoken $Env:OPENSHIFT_TOKEN `
+            -project "my-project" `
+            -dcname "my-deployment-config" `
+            -container "my-container" `
+            -image "$Env:DOCKER_REPO/${{ github.event.inputs.docker_image_tag }}"
