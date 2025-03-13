@@ -1,176 +1,83 @@
-name: 'Core API Build'
-description: 'Builds and tests a .NET Core project, performs SonarQube analysis, Snyk scan, and builds a Docker image.'
-inputs:
-  MajorVersion:
-    required: true
-    type: string
-  MinorVersion:
-    required: true
-    type: string
-  GithubRepo:
-    required: true
-    type: string
-  Branch:
-    required: true
-    type: string
-  BuildNumber:
-    required: true
-    type: string
-  Rev:
-    required: true
-    type: string
-  SolutionFile:
-    required: true
-    type: string
-  PathToMainProject:
-    required: true
-    type: string
-  PathToTestProject:
-    required: true
-    type: string
-  DotnetBuildOutputDockerSrc:
-    required: true
-    type: string
-  BuildArgs:
-    required: false
-    type: string
-    default: '-c Release'
-  Dockerfile:
-    required: true
-    type: string
-  DockerVersionArgs:
-    required: false
-    type: string
-    default: '${{ github.run_number }}'
-  DockerRepo:
-    required: true
-    type: string
-  DockerImageName:
-    required: true
-    type: string
-  SonarQubeProjectName:
-    required: true
-    type: string
-  SonarQubeExclusions:
-    required: false
-    type: string
-  SonarQubeCoverletReportPaths:
-    required: false
-    type: string
-  SonarQubeServiceConnection:
-    required: false
-    type: string
-    default: 'GBT Code Analysis'
-  SnykScanEnabled:
-    required: false
-    type: boolean
-    default: true
-  SnykAuthToken:
-    required: false
-    type: string
-  SnykOrg:
-    required: false
-    type: string
-  SnykProjectName:
-    required: false
-    type: string
-  SonarprojectBaseDir:
-    required: false
-    type: string
+name: Build
 
-runs:
-  using: "composite"
-  steps:
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Select the deployment environment"
+        required: true
+        default: "Dev"
+        type: choice
+        options:
+          - Dev
+          - Cert
 
-    - name: Setup .NET 6.0
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: '6.0.x'
+env:
+  GIT_PAT: ${{ secrets.GIT_PAT }}
+  SNYK_AUTH_TOKEN: ${{ secrets.SNYK_AUTH_TOKEN }}
+  SNYK_ORG: ${{ secrets.SNYK_ORG }}
+  SNYK_PROJECT_NAME: ${{ secrets.SNYK_PROJECT_NAME }}
+  SonarQubeToken: ${{ secrets.SONARQUBE_TOKEN }}
+  git_access_token: ${{ secrets.GIT_ACCESS_TOKEN }}
+  docker_username: ${{ secrets.DOCKER_USERNAME }}
+  docker_password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Clone GitHub Repo
-      shell: pwsh
-      run: |
-        $gitUrl = "${{ inputs.GithubRepo }}"
-        $branch = "${{ inputs.Branch }}"
-        $targetDir = "D:\BuildAgents\1\_work\_temp\ELT"
-        $finalDir = "${{ github.workspace }}"
-        git clone -b $branch $gitUrl $finalDir
-        Write-Host "Repo cloned to: $finalDir"
-        Get-ChildItem $finalDir -Recurse | ForEach-Object { Write-Host $_.FullName }
+jobs:
+  build-app:
+    runs-on: [self-hosted, windows]
 
-    - name: Display Pipeline Info
-      uses: ./actions/display-pipeline-info.taskgroup@main
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - name: Versioning
-      uses: ./actions/version-build.taskgroup@main
-      with:
-        MajorVersion: ${{ inputs.MajorVersion }}
-        MinorVersion: ${{ inputs.MinorVersion }}
-        BuildNumber: ${{ inputs.BuildNumber }}
-        Rev: ${{ inputs.Rev }}
+      - name: Load Pipeline Variables
+        id: load-vars
+        shell: powershell
+        run: |
+          Write-Host "Loading pipeline variables from build.vars.yml"
+          $yamlPath = "$env:GITHUB_WORKSPACE/.github/workflows/build.vars.yml"
 
-    - name: SonarQube Pre-Build Analysis
-      uses: ./actions/sonarqube-pre-build-dotnet-workdir.taskgroup@main
-      with:
-        SonarQubeProjectName: ${{ inputs.SonarQubeProjectName }}
-        SonarQubeExclusions: ${{ inputs.SonarQubeExclusions }}
-        SonarQubeCoverletReportPaths: ${{ inputs.SonarQubeCoverletReportPaths }}
-        SonarQubeServiceConnection: ${{ inputs.SonarQubeServiceConnection }}
-        SonarprojectBaseDir: ${{ inputs.SonarprojectBaseDir }}
+          if (Test-Path $yamlPath) {
+            $content = Get-Content $yamlPath | Where-Object {$_ -match '^\s*[^#]'}
+            foreach ($line in $content) {
+              $key, $value = $line -split ":\s*", 2
+              if ($key -and $value) {
+                echo "$key=$value" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+              }
+            }
+          } else {
+            Write-Error "build.vars.yml not found!"
+            exit 1
+          }
 
-    - name: Build .NET Core Project
-      shell: pwsh
-      run: dotnet build "${{ inputs.SolutionFile }}" ${{ inputs.BuildArgs }}
+      - name: Clone GitHub Actions Shared Lib
+        uses: actions/checkout@v4
+        with:
+          repository: AMEX-GBTG-Sandbox/github-actions-shared-lib
+          ref: main
+          token: ${{ secrets.GIT_PAT }}
+          path: github-actions-shared-lib
 
-    - name: Snyk Security Scan
-      if: inputs.SnykScanEnabled == 'true'
-      uses: ./actions/snyk-dotnet-scan.taskgroup@main
-      with:
-        SnykAuthToken: ${{ inputs.SnykAuthToken }}
-        SnykSolutionFile: ${{ inputs.SolutionFile }}
-        SnykOrg: ${{ inputs.SnykOrg }}
-        SnykProjectName: ${{ inputs.SnykProjectName }}
-
-    - name: Run Unit and Component Tests
-      shell: pwsh
-      run: |
-        dotnet test "${{ inputs.PathToTestProject }}" ${{ inputs.BuildArgs }} `
-          --filter "(TestCategory=Unit)|(TestCategory=Component)" `
-          --collect "Code Coverage" `
-          /p:EnableNETAnalyzers=false
-
-    - name: SonarQube Post-Build Analysis
-      uses: ./actions/sonarqube-post-build-workdir.taskgroup@main
-      with:
-        SonarQubeProjectName: ${{ inputs.SonarQubeProjectName }}
-        SonarprojectBaseDir: ${{ inputs.SonarprojectBaseDir }}
-
-    - name: Publish .NET Core Project
-      shell: pwsh
-      run: |
-        dotnet publish "${{ inputs.PathToMainProject }}" `
-          --no-build --no-restore `
-          -o "d:\DockerShare\${{ runner.id }}\${{ github.run_id }}${{ inputs.DotnetBuildOutputDockerSrc }}" `
-          ${{ inputs.BuildArgs }}
-
-    - name: Build Docker Image
-      uses: ./actions/docker-build.taskgroup@main
-      with:
-        Dockerfile: ${{ inputs.Dockerfile }}
-        DockerRepo: ${{ inputs.DockerRepo }}
-        DockerImageName: ${{ inputs.DockerImageName }}
-        DockerVersionArgs: ${{ inputs.DockerVersionArgs }}
-        DockerContext: 'docker-unix'
-        DockerFolder: "d:\DockerShare\${{ runner.id }}\${{ github.run_id }}"
-
-    - name: Clean Up Docker Share
-      shell: pwsh
-      continue-on-error: true
-      run: Remove-Item -Path "d:\DockerShare\${{ runner.id }}\${{ github.run_id }}" -Recurse -Force
-
-    - name: Push Docker Image
-      uses: ./actions/docker-push.taskgroup@main
-      with:
-        DockerRepo: ${{ inputs.DockerRepo }}
-        DockerImageName: ${{ inputs.DockerImageName }}
-        DockerVersionArgs: ${{ inputs.DockerVersionArgs }}
+      - name: Call Composite Action
+        uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/dotnet-core-docker-gitclone@main
+        with:
+          GithubRepo: ${{ env.GithubRepo }}
+          Branch: ${{ env.Branch }}
+          SonarprojectBaseDir: ${{ env.SonarprojectBaseDir }}
+          MajorVersion: ${{ env.MajorVersion }}
+          MinorVersion: ${{ env.MinorVersion }}
+          BuildNumber: ${{ env.BuildNumber }}
+          Rev: ${{ env.Rev }}
+          SolutionFile: ${{ env.ProjectPath }}
+          PathToMainProject: ${{ env.MainProjectPath }}
+          PathToTestProject: ${{ env.TestProjectPath }}
+          DockerFile: ${{ env.Dockerfile }}
+          DockerRepo: ${{ env.DockerDevRepo }}
+          DockerImageName: ${{ env.DockerImageName }}
+          SonarQubeProjectName: ${{ env.SonarProjectName }}
+          SonarQubeExclusions: ${{ env.SonarExclusion }}
+          SonarQubeCoverletReportPaths: ${{ env.CoverletReportPaths }}
+          DotnetBuildOutputDockerSrc: ${{ env.DotnetBuildOutputDockerSrc }}
+          SnykAuthToken: ${{ secrets.SNYK_AUTH_TOKEN }}
+          SnykOrg: ${{ secrets.SNYK_ORG }}
+          SnykProjectName: ${{ secrets.SNYK_PROJECT_NAME }}
