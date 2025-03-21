@@ -1,1 +1,1 @@
-$env:NODE_OPTIONS="--experimental-global-webcrypto"
+node -e "globalThis.crypto = require('crypto').webcrypto;"
