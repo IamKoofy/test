@@ -1,164 +1,63 @@
----
-- name: Login to OpenShift
-  shell: >
-    {% if sr_environment == 'CDE' %}
-    oc login --token={{ cde_api_token }} --server={{ cde_api_url }}
-    {% else %}
-    oc login --token={{ non_cde_api_token }} --server={{ non_cde_api_url }}
-    {% endif %}
-  register: oc_login
-  failed_when: oc_login.rc != 0
+name: Build Nightly
 
-# Validation: Check if the project exists
-- name: Validate if OpenShift project exists
-  shell: oc get project {{ sr_project }} --no-headers
-  register: project_check
-  failed_when: project_check.rc != 0
-  changed_when: false
+on:
+  schedule:
+    - cron: "20 2 * * 1-5"  # Runs at 2:20 AM Monday to Friday
+  workflow_dispatch:  # Allows manual trigger
 
-# Validation: Check if DeploymentConfig exists
-- name: Validate if DeploymentConfig exists in the project
-  shell: oc get dc -n {{ sr_project }} {{ sr_service }} --no-headers
-  register: dc_check
-  failed_when: dc_check.rc != 0
-  changed_when: false
+env:
+  MajorVersion: ${{ secrets.MAJOR_VERSION }}
+  MinorVersion: ${{ secrets.MINOR_VERSION }}
+  BuildNumber: ${{ github.run_number }}
+  Rev: ${{ github.run_attempt }}
+  SolutionFile: ${{ secrets.SOLUTION_FILE }}
+  PathToMainProject: ${{ secrets.MAIN_PROJECT_PATH }}
+  PathToTestProject: ${{ secrets.TEST_PROJECT_PATH }}
+  DockerFile: ${{ secrets.DOCKER_FILE }}
+  DockerRepo: ${{ secrets.DOCKER_DEV_REPO }}
+  DockerImageName: ${{ secrets.DOCKER_IMAGE_NAME }}
+  SonarQubeProjectName: ${{ secrets.SONAR_PROJECT_NAME }}
+  SonarQubeExclusions: ${{ secrets.SONAR_EXCLUSION }}
+  SonarQubeCoverletReportPaths: ${{ secrets.COVERLET_REPORT_PATHS }}
+  DotnetBuildOutputDockerSrc: ${{ secrets.DOTNET_BUILD_OUTPUT_DOCKER_SRC }}
+  SnykAuthToken: ${{ secrets.SNYK_AUTH_TOKEN }}
+  SnykOrg: ${{ secrets.SNYK_ORG }}
+  SnykProjectName: ${{ secrets.SNYK_PROJECT_NAME }}
+  SnykScanEnabled: ${{ secrets.SNYK_SCAN_ENABLED }}
 
-- name: Get initial pod count
-  shell: >
-    oc get pods -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }} -o jsonpath="{.items[?(@.status.phase=='Running')].metadata.name}" | wc -w
-  register: initial_pod_count
-  failed_when: initial_pod_count.rc != 0 or initial_pod_count.stdout | int == 0
+jobs:
+  build:
+    runs-on: self-hosted  # Use your GitHub self-hosted runner
 
-- name: Get list of pods before deletion
-  shell: >
-    oc get pods -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }} -o jsonpath="{.items[*].metadata.name}"
-  register: pods_before_restart
-  changed_when: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-- name: Restart pods based on condition
-  block:
-    - name: Restart all pods related to DeploymentConfig
-      shell: >
-        oc delete pod -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }}
-      register: restart_pods_output
-      failed_when: restart_pods_output.rc != 0
-      when: sr_restart_all | lower | trim == 'yes'
+      - name: Checkout templates repository
+        uses: actions/checkout@v4
+        with:
+          repository: DotNet-COP/devops-templates
+          ref: Development
+          token: ${{ secrets.GIT_TOKEN }}
 
-    - name: Restart specific pods
-      shell: >
-        oc delete pod -n {{ sr_project }} {{ sr_pod_names.split(',') | join(' ') }}
-      register: restart_pods_output
-      failed_when: restart_pods_output.rc != 0
-      when: sr_restart_all | lower | trim != 'yes'
-
-- name: Wait for pods to stabilize
-  shell: >
-    oc wait --for=condition=Ready pods -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }} --timeout=300s
-  register: wait_result
-  failed_when: wait_result.rc != 0
-
-- name: Get final pod count
-  shell: >
-    oc get pods -n {{ sr_project }} --selector=deploymentconfig={{ sr_service }} -o jsonpath="{.items[?(@.status.phase=='Running')].metadata.name}" | wc -w
-  register: final_pod_count
-  failed_when: final_pod_count.rc != 0
-
-- name: Validate pod count
-  fail:
-    msg: "Pod count mismatch! Initial: {{ initial_pod_count.stdout }}, Final: {{ final_pod_count.stdout }}"
-  when: initial_pod_count.stdout != final_pod_count.stdout
-
-# Freshservice SR Update Tasks
-- name: Close Freshservice SR if restart successful
-  when: initial_pod_count.stdout == final_pod_count.stdout
-  block:
-    - name: Reply to the user that pod restart is successful
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}/reply"
-        method: POST
-        url_username: qdIwrrVoGVj
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >-
-          {
-            "body": "POD restart completed successfully. The following pods were restarted: {{ pods_before_restart.stdout }}",
-            "cc_emails": [ "et.j@test.com" ] 
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
-
-    - name: Close the service request in Freshservice
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}"
-        method: PUT
-        url_username: qdIwrrVoG
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >-
-          {
-            "ticket": {
-              "status": 5,
-              "description": "Pod restart completed successfully, closing this SR"
-            }
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
-
-- name: Set Freshservice SR to pending if restart failed
-  when: initial_pod_count.stdout != final_pod_count.stdout
-  block:
-    - name: Reply to the user that pod restart failed
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}/reply"
-        method: POST
-        url_username: qdIwrrVoG
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >-
-          {
-            "body": "Pod restart could not be completed. The internal team is investigating.",
-            "cc_emails": [ "ej.j@test.com" ] 
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
-
-    - name: Set ticket status to pending in Freshservice
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}"
-        method: PUT
-        url_username: qdIwrrVoG
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >-
-          {
-            "ticket": {
-              "status": 3,
-              "description": "Pod restart failed. Internal team is investigating.",
-              "custom_fields": {
-                "pending_substatus": "Awaiting Internal Team Action",
-                "agent_notes": "Pod restart failed. Internal team will investigate further."
-              }
-            }
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
+      - name: Run Build Process
+        uses: ./.github/actions/build/dotnet-core-docker-v2
+        with:
+          MajorVersion: ${{ env.MajorVersion }}
+          MinorVersion: ${{ env.MinorVersion }}
+          BuildNumber: ${{ env.BuildNumber }}
+          Rev: ${{ env.Rev }}
+          SolutionFile: ${{ env.SolutionFile }}
+          PathToMainProject: ${{ env.PathToMainProject }}
+          PathToTestProject: ${{ env.PathToTestProject }}
+          DockerFile: ${{ env.DockerFile }}
+          DockerRepo: ${{ env.DockerRepo }}
+          DockerImageName: ${{ env.DockerImageName }}
+          SonarQubeProjectName: ${{ env.SonarQubeProjectName }}
+          SonarQubeExclusions: ${{ env.SonarQubeExclusions }}
+          SonarQubeCoverletReportPaths: ${{ env.SonarQubeCoverletReportPaths }}
+          DotnetBuildOutputDockerSrc: ${{ env.DotnetBuildOutputDockerSrc }}
+          SnykAuthToken: ${{ env.SnykAuthToken }}
+          SnykOrg: ${{ env.SnykOrg }}
+          SnykProjectName: ${{ env.SnykProjectName }}
+          SnykScanEnabled: ${{ env.SnykScanEnabled }}
