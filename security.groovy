@@ -1,6 +1,4 @@
-steps:
-  - name: List Files and Folders
-    shell: pwsh
-    run: |
-      Write-Host "Listing files and folders in the current directory:"
-      Get-ChildItem -Path . | Format-List Name, Mode, LastWriteTime
+- name: Copy Dockerfile to Docker context
+  shell: pwsh
+  run: |
+    Copy-Item "${{ inputs.Dockerfile }}" "d:/DockerShare/${{ github.run_id }}/Dockerfile"
