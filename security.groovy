@@ -1,2 +1,2 @@
-namespaces_json.stdout | from_json |
-        json_query("items[?metadata.labels[\"project-owner\"]=='gbt'].metadata.name")
+namespaces: "{{ namespaces_json.stdout | from_json | json_query('items[?metadata.labels[\"project-owner\"]==`gbt`].metadata.name') }}"
+  when: oc_login_result.rc == 0
