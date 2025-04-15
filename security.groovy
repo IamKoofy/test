@@ -1,63 +1,33 @@
-name: Build and Test on PR
+- name: Login to OpenShift
+  command: >
+    oc login {{ oc_login_url }} --token={{ token }}
+  register: oc_login_result
+  ignore_errors: yes
+  changed_when: oc_login_result.rc != 0
 
-on:
-  pull_request:
-    branches:
-      - main  # or whatever your default branch is
+- name: Get all namespaces (raw JSON)
+  command: oc get ns -o json
+  register: namespaces_json
+  when: oc_login_result.rc == 0
+  changed_when: false
 
-jobs:
-  build:
-    name: Build and Analyze
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: powershell
+- name: Extract namespaces with label project-owner = gbt
+  set_fact:
+    namespaces: >-
+      {{
+        namespaces_json.stdout | from_json |
+        json_query("items[?metadata.labels.'project-owner'=='gbt'].metadata.name")
+      }}
+  when: oc_login_result.rc == 0
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+- name: Debug matching namespaces
+  debug:
+    msg: "{{ namespaces }}"
+  when: oc_login_result.rc == 0
 
-      - name: Setup .NET SDK
-        uses: your-org/your-shared-repo/.github/actions/setup-dotnet@main
-        with:
-          dotnet-version: '8.0.100' # Replace with actual version you use
-
-      - name: Build solution
-        run: dotnet build ${{ github.event.pull_request.head.repo.full_name }} --configuration Release
-
-      - name: Snyk scan
-        if: env.SNYK_TOKEN != ''
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: |
-          dotnet tool install --global Snyk.CLI
-          snyk test --org=${{ secrets.SNYK_ORG }} --project-name=${{ github.repository }}
-
-      - name: Run Tests with Code Coverage
-        run: |
-          dotnet test 'path\to\test\project.csproj' --configuration Release `
-            --filter "(TestCategory=Unit)|(TestCategory=Component)" `
-            --collect "Code Coverage"
-
-      - name: Publish project
-        run: |
-          dotnet publish 'path\to\main\project.csproj' --no-build --no-restore `
-            -o d:\DockerShare\${{ github.run_id }}\output -c Release
-
-      - name: Docker Build
-        run: |
-          docker build -f Dockerfile `
-            -t yourrepo/image:${{ github.run_number }} `
-            d:\DockerShare\${{ github.run_id }}\output
-
-      - name: Docker Push
-        env:
-          DOCKER_USER: ${{ secrets.DOCKER_USER }}
-          DOCKER_PASS: ${{ secrets.DOCKER_PASS }}
-        run: |
-          echo $env:DOCKER_PASS | docker login -u $env:DOCKER_USER --password-stdin
-          docker push yourrepo/image:${{ github.run_number }}
-
-      - name: Clean Docker share
-        continue-on-error: true
-        run: Remove-Item -Path "d:\DockerShare\${{ github.run_id }}" -Recurse -Force
+- name: Loop through each matching namespace
+  include_tasks: backup_namespace.yml
+  loop: "{{ namespaces }}"
+  loop_control:
+    loop_var: namespace
+  when: oc_login_result.rc == 0
