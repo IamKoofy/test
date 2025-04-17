@@ -1,53 +1,57 @@
-name: 'Push Docker Image'
-description: 'Logs in to Docker, pushes an image, and removes the local copy'
-
+name: "SonarQube Prepare"
+description: "Prepares the project for SonarQube scanning"
 inputs:
-  docker_repo:
-    description: 'Docker repository URL'
+  sonarqube_url:
+    description: "SonarQube server URL"
     required: true
-  docker_image_name:
-    description: 'Docker image name'
+  sonarqube_token:
+    description: "SonarQube token"
     required: true
-  docker_version_args:
-    description: 'Docker image tag (optional override)'
+  project_name:
+    description: "SonarQube project name"
+    required: true
+  exclusions:
+    description: "SonarQube exclusions"
     required: false
-  docker_username:
-    description: 'Docker login username'
-    required: true
-  docker_password:
-    description: 'Docker login password'
-    required: true
-
+    default: "**/bin/**,**/obj/**"
+  coverage_paths:
+    description: "SonarQube coverlet report paths"
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
-    - name: Docker Login
-      shell: pwsh
+    - name: Add Project GUID to .csproj Files
+      shell: powershell
       run: |
-        echo "${{ inputs.docker_password }}" | docker login ${{ inputs.docker_repo }} --username ${{ inputs.docker_username }} --password-stdin
+        function update-project-file($file) {
+            $fileContent = Get-Content -path $file.FullName
+            if ($fileContent -like "*ProjectGuid*") {
+                Write-Host "$($file.Name) already has a project id assigned"
+                return
+            }
+            [xml]$xmlFile = $fileContent
+            $node = $xmlFile.SelectSingleNode("//Project/PropertyGroup")
+            $child = $xmlFile.CreateElement("ProjectGuid")
+            $child.InnerText = "{"+[guid]::NewGuid().ToString().ToUpper()+"}"
+            $node.AppendChild($child)
+            $xmlFile.Save($file.FullName) | Out-Null
+            Write-Host "$($file.Name) has been assigned a new project id"
+        }
+        Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object { update-project-file $_ }
 
-    - name: Push Docker Image
-      shell: pwsh
+    - name: SonarQube Prepare Scan
+      shell: powershell
       run: |
-        $tag = "${{ inputs.docker_version_args }}"
-        if (-not $tag) {
-          $tag = "${{ github.run_number }}"
-        }
-        docker push "${{ inputs.docker_repo }}/${{ inputs.docker_image_name }}:$tag"
+        dotnet tool install --global dotnet-sonarscanner
+        $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
 
-    - name: Remove Local Docker Image
-      shell: pwsh
-      run: |
-        $tag = "${{ inputs.docker_version_args }}"
-        if (-not $tag) {
-          $tag = "${{ github.run_number }}"
-        }
-        $image = "${{ inputs.docker_repo }}/${{ inputs.docker_image_name }}:$tag"
-        $app_image_id = docker images -q $image
-        if ($app_image_id) {
-          docker image rm $app_image_id -f
-        }
-        docker context use default
-
-    - name: Remove Dangling Images
-      uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/remove-dangling-images@main
+        dotnet sonarscanner begin `
+          /k:"${{ inputs.project_name }}" `
+          /d:sonar.host.url="${{ inputs.sonarqube_url }}" `
+          /d:sonar.login="${{ inputs.sonarqube_token }}" `
+          /d:sonar.exclusions="${{ inputs.exclusions }}" `
+          /d:sonar.test.exclusions="${{ inputs.exclusions }}" `
+          /d:sonar.coverage.exclusions="**/*Tests*.cs,**/Models/**/*,**/Data/**/*,**/Program.cs,**/Startup.cs,${{ inputs.exclusions }}" `
+          /d:sonar.cs.roslyn.ignoreIssues="false" `
+          /d:sonar.cs.opencover.reportsPaths="${{ inputs.coverage_paths }}"
