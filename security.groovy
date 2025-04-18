@@ -1,74 +1,43 @@
-param (
-    [string]$ProjectName,
-    [string]$SonarHostUrl,
-    [string]$SonarToken,
-    [string]$AdditionalArgs
-)
+name: 'SonarQube Post Analysis'
+description: 'Runs dotnet sonarscanner end and checks SonarQube quality gate'
+inputs:
+  projectName:
+    required: true
+    description: 'SonarQube project key'
+  sonarToken:
+    required: true
+    description: 'SonarQube token'
+  sonarHostUrl:
+    required: true
+    description: 'SonarQube server URL'
+  scannerParams:
+    required: false
+    description: 'SONARQUBE_SCANNER_PARAMS as JSON'
 
-Write-Host "📡 Running sonar-scanner..."
-$scannerCommand = @(
-    "sonar-scanner",
-    "-Dsonar.projectKey=$ProjectName",
-    "-Dsonar.host.url=$SonarHostUrl",
-    "-Dsonar.login=$SonarToken"
-)
+runs:
+  using: "composite"
+  steps:
+    - name: Strip sonar.branch.name from SONARQUBE_SCANNER_PARAMS
+      shell: pwsh
+      run: |
+        if ($env:SONARQUBE_SCANNER_PARAMS) {
+          $settings = $env:SONARQUBE_SCANNER_PARAMS | ConvertFrom-Json
+          $settings.PSObject.Properties.Remove("sonar.branch.name")
+          $updated = $settings | ConvertTo-Json -Compress
+          echo "Updated scanner params: $updated"
+          echo "SONARQUBE_SCANNER_PARAMS=$updated" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        }
 
-if ($AdditionalArgs) {
-    $scannerCommand += $AdditionalArgs
-}
+    - name: Install .NET SonarScanner tool
+      shell: pwsh
+      run: |
+        dotnet tool install --global dotnet-sonarscanner
+        echo "$HOME\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
-# Run the scanner
-& $scannerCommand
-
-$reportPath = ".scannerwork\report-task.txt"
-if (-not (Test-Path $reportPath)) {
-    Write-Error "report-task.txt not found at $reportPath"
-    exit 1
-}
-
-$taskInfo = Get-Content $reportPath | ConvertFrom-StringData
-$ceTaskId = $taskInfo["ceTaskId"]
-
-if (-not $ceTaskId) {
-    Write-Error "ceTaskId not found in report-task.txt"
-    exit 1
-}
-
-$authBytes = [System.Text.Encoding]::ASCII.GetBytes("${SonarToken}:")
-$authHeader = @{
-    Authorization = "Basic " + [Convert]::ToBase64String($authBytes)
-}
-
-# Poll the task until it finishes
-$maxRetries = 30
-$delay = 5
-$retry = 0
-$status = ""
-
-do {
-    Start-Sleep -Seconds $delay
-    try {
-        $response = Invoke-RestMethod -Uri "$SonarHostUrl/api/ce/task?id=$ceTaskId" -Headers $authHeader -UseBasicParsing
-        $status = $response.task.status
-        Write-Host "SonarQube analysis status: $status"
-    } catch {
-        Write-Warning "Failed to get analysis status. Retrying..."
-    }
-    $retry++
-} while ($status -ne "SUCCESS" -and $retry -lt $maxRetries)
-
-if ($status -ne "SUCCESS") {
-    Write-Error "Analysis did not complete in expected time."
-    exit 1
-}
-
-# Check quality gate status
-$gateResponse = Invoke-RestMethod -Uri "$SonarHostUrl/api/qualitygates/project_status?projectKey=$ProjectName" -Headers $authHeader -UseBasicParsing
-$gateStatus = $gateResponse.projectStatus.status
-
-Write-Host "Quality Gate status: $gateStatus"
-
-if ($gateStatus -ne "OK") {
-    Write-Error "Quality Gate failed with status: $gateStatus"
-    exit 1
-}
+    - name: Run sonar end and publish quality gate status
+      shell: pwsh
+      run: |
+        . "${{ github.action_path }}/sonar-post.ps1" `
+          -ProjectName "${{ inputs.projectName }}" `
+          -SonarToken "${{ inputs.sonarToken }}" `
+          -SonarHostUrl "${{ inputs.sonarHostUrl }}"
