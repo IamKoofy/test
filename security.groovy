@@ -1,43 +1,59 @@
-name: 'SonarQube Post Analysis'
-description: 'Runs dotnet sonarscanner end and checks SonarQube quality gate'
-inputs:
-  projectName:
-    required: true
-    description: 'SonarQube project key'
-  sonarToken:
-    required: true
-    description: 'SonarQube token'
-  sonarHostUrl:
-    required: true
-    description: 'SonarQube server URL'
-  scannerParams:
-    required: false
-    description: 'SONARQUBE_SCANNER_PARAMS as JSON'
+param (
+    [string]$ProjectName,
+    [string]$SonarHostUrl,
+    [string]$SonarToken
+)
 
-runs:
-  using: "composite"
-  steps:
-    - name: Strip sonar.branch.name from SONARQUBE_SCANNER_PARAMS
-      shell: pwsh
-      run: |
-        if ($env:SONARQUBE_SCANNER_PARAMS) {
-          $settings = $env:SONARQUBE_SCANNER_PARAMS | ConvertFrom-Json
-          $settings.PSObject.Properties.Remove("sonar.branch.name")
-          $updated = $settings | ConvertTo-Json -Compress
-          echo "Updated scanner params: $updated"
-          echo "SONARQUBE_SCANNER_PARAMS=$updated" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        }
+Write-Host "🔚 Running dotnet sonarscanner end..."
+dotnet sonarscanner end /d:sonar.login=$SonarToken
 
-    - name: Install .NET SonarScanner tool
-      shell: pwsh
-      run: |
-        dotnet tool install --global dotnet-sonarscanner
-        echo "$HOME\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+$reportPath = ".sonarqube\out\report-task.txt"
+if (-not (Test-Path $reportPath)) {
+    Write-Error "report-task.txt not found at $reportPath"
+    exit 1
+}
 
-    - name: Run sonar end and publish quality gate status
-      shell: pwsh
-      run: |
-        . "${{ github.action_path }}/sonar-post.ps1" `
-          -ProjectName "${{ inputs.projectName }}" `
-          -SonarToken "${{ inputs.sonarToken }}" `
-          -SonarHostUrl "${{ inputs.sonarHostUrl }}"
+$lines = Get-Content $reportPath
+$ceTaskUrl = ($lines | Where-Object { $_ -like "ceTaskUrl=*" }) -replace "ceTaskUrl=", ""
+
+if (-not $ceTaskUrl) {
+    Write-Error "ceTaskUrl not found in report-task.txt"
+    exit 1
+}
+
+$authHeader = @{
+    Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${SonarToken}:"))
+}
+
+$maxRetries = 60
+$delay = 5
+$status = ""
+$retry = 0
+
+do {
+    Start-Sleep -Seconds $delay
+    try {
+        $res = Invoke-RestMethod -Uri $ceTaskUrl -Headers $authHeader -UseBasicParsing
+        $status = $res.task.status
+        Write-Host "SonarQube background task status: $status"
+    } catch {
+        Write-Warning "Retrying due to error fetching task status..."
+    }
+    $retry++
+} while ($status -ne "SUCCESS" -and $retry -lt $maxRetries)
+
+if ($status -ne "SUCCESS") {
+    Write-Error "Analysis did not complete in time."
+    exit 1
+}
+
+$gateCheckUrl = "$SonarHostUrl/api/qualitygates/project_status?projectKey=$ProjectName"
+$gate = Invoke-RestMethod -Uri $gateCheckUrl -Headers $authHeader -UseBasicParsing
+$gateStatus = $gate.projectStatus.status
+
+Write-Host "✅ Quality Gate Status: $gateStatus"
+
+if ($gateStatus -ne "OK") {
+    Write-Error "❌ Quality Gate failed: $gateStatus"
+    exit 1
+}
