@@ -1,57 +1,74 @@
-name: "SonarQube Prepare"
-description: "Prepares the project for SonarQube scanning"
-inputs:
-  sonarqube_url:
-    description: "SonarQube server URL"
-    required: true
-  sonarqube_token:
-    description: "SonarQube token"
-    required: true
-  project_name:
-    description: "SonarQube project name"
-    required: true
-  exclusions:
-    description: "SonarQube exclusions"
-    required: false
-    default: "**/bin/**,**/obj/**"
-  coverage_paths:
-    description: "SonarQube coverlet report paths"
-    required: false
-    default: ""
-runs:
-  using: "composite"
-  steps:
-    - name: Add Project GUID to .csproj Files
-      shell: powershell
-      run: |
-        function update-project-file($file) {
-            $fileContent = Get-Content -path $file.FullName
-            if ($fileContent -like "*ProjectGuid*") {
-                Write-Host "$($file.Name) already has a project id assigned"
-                return
-            }
-            [xml]$xmlFile = $fileContent
-            $node = $xmlFile.SelectSingleNode("//Project/PropertyGroup")
-            $child = $xmlFile.CreateElement("ProjectGuid")
-            $child.InnerText = "{"+[guid]::NewGuid().ToString().ToUpper()+"}"
-            $node.AppendChild($child)
-            $xmlFile.Save($file.FullName) | Out-Null
-            Write-Host "$($file.Name) has been assigned a new project id"
-        }
-        Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object { update-project-file $_ }
+param (
+    [string]$ProjectName,
+    [string]$SonarHostUrl,
+    [string]$SonarToken,
+    [string]$AdditionalArgs
+)
 
-    - name: SonarQube Prepare Scan
-      shell: powershell
-      run: |
-        dotnet tool install --global dotnet-sonarscanner
-        $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
+Write-Host "📡 Running sonar-scanner..."
+$scannerCommand = @(
+    "sonar-scanner",
+    "-Dsonar.projectKey=$ProjectName",
+    "-Dsonar.host.url=$SonarHostUrl",
+    "-Dsonar.login=$SonarToken"
+)
 
-        dotnet sonarscanner begin `
-          /k:"${{ inputs.project_name }}" `
-          /d:sonar.host.url="${{ inputs.sonarqube_url }}" `
-          /d:sonar.login="${{ inputs.sonarqube_token }}" `
-          /d:sonar.exclusions="${{ inputs.exclusions }}" `
-          /d:sonar.test.exclusions="${{ inputs.exclusions }}" `
-          /d:sonar.coverage.exclusions="**/*Tests*.cs,**/Models/**/*,**/Data/**/*,**/Program.cs,**/Startup.cs,${{ inputs.exclusions }}" `
-          /d:sonar.cs.roslyn.ignoreIssues="false" `
-          /d:sonar.cs.opencover.reportsPaths="${{ inputs.coverage_paths }}"
+if ($AdditionalArgs) {
+    $scannerCommand += $AdditionalArgs
+}
+
+# Run the scanner
+& $scannerCommand
+
+$reportPath = ".scannerwork\report-task.txt"
+if (-not (Test-Path $reportPath)) {
+    Write-Error "❌ report-task.txt not found at $reportPath"
+    exit 1
+}
+
+$taskInfo = Get-Content $reportPath | ConvertFrom-StringData
+$ceTaskId = $taskInfo["ceTaskId"]
+
+if (-not $ceTaskId) {
+    Write-Error "❌ ceTaskId not found in report-task.txt"
+    exit 1
+}
+
+$authBytes = [Text.Encoding]::ASCII.GetBytes("$SonarToken:")
+$authHeader = @{
+    Authorization = "Basic " + [Convert]::ToBase64String($authBytes)
+}
+
+# Poll the task until it finishes
+$maxRetries = 30
+$delay = 5
+$retry = 0
+$status = ""
+
+do {
+    Start-Sleep -Seconds $delay
+    try {
+        $response = Invoke-RestMethod -Uri "$SonarHostUrl/api/ce/task?id=$ceTaskId" -Headers $authHeader -UseBasicParsing
+        $status = $response.task.status
+        Write-Host "🔄 SonarQube analysis status: $status"
+    } catch {
+        Write-Warning "⚠️ Failed to get analysis status. Retrying..."
+    }
+    $retry++
+} while ($status -ne "SUCCESS" -and $retry -lt $maxRetries)
+
+if ($status -ne "SUCCESS") {
+    Write-Error "❌ Analysis did not complete in expected time."
+    exit 1
+}
+
+# Check quality gate status
+$gateResponse = Invoke-RestMethod -Uri "$SonarHostUrl/api/qualitygates/project_status?projectKey=$ProjectName" -Headers $authHeader -UseBasicParsing
+$gateStatus = $gateResponse.projectStatus.status
+
+Write-Host "✅ Quality Gate status: $gateStatus"
+
+if ($gateStatus -ne "OK") {
+    Write-Error "❌ Quality Gate failed with status: $gateStatus"
+    exit 1
+}
