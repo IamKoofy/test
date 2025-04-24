@@ -1,1 +1,1 @@
-        "body": "Dear user,\n\nYour request for pod restart has been successfully completed. Please find the details below:\n\nPROJECT: {{ sr_project }}\nSERVICE: {{ sr_service }}\nPODS RESTARTED: {{ pods_before_restart.stdout }}\n\nRegards,\nAutomation Team",
+"body": "Dear user,<br><br>Your request for pod restart has been successfully completed. Please find the details below:<br><br><b>PROJECT:</b> {{ sr_project }}<br><b>SERVICE:</b> {{ sr_service }}<br><b>PODS RESTARTED:</b> {{ pods_before_restart.stdout }}<br><br>Regards,<br>TEAM",
