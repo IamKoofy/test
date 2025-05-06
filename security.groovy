@@ -1,115 +1,152 @@
-name: sbp-admin-web.build
+name: 'Core Dotnet Build'
+description: 'Builds and publishes a .NET Core/5/6/8 app, runs tests, performs SonarQube & Snyk analysis.'
 
-on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: "Select the deployment environment"
-        required: true
-        default: "Dev"
-        type: choice
-        options:
-          - Dev
-          - Cert
-      branch:
-        description: "Branch to build (e.g. main, Release-107)"
-        required: true
-        default: "main"
-        type: string
+inputs:
+  MajorVersion:
+    required: true
+    type: string
+  MinorVersion:
+    required: true
+    type: string
+  BuildNumber:
+    required: true
+    type: string
+  Rev:
+    required: true
+    type: string
 
-env:
-  GIT_PAT: ${{secrets.GIT_PAT}}
-  SNYK_AUTH_TOKEN: ${{secrets.SNYK_AUTH_TOKEN}}
-  SNYK_ORG: ${{secrets.SNYK_ORG}}
-  SNYK_PROJECT_NAME: ${{secrets.SNYK_PROJECT_NAME}}
-  SonarQubeToken: ${{ secrets.SONARQUBE_TOKEN }}
-  git_access_token: ${{ secrets.GIT_ACCESS_TOKEN }}
-  docker_username: ${{ secrets.DOCKER_USERNAME }}
-  docker_password: ${{ secrets.DOCKER_PASSWORD }}
+  ProjectName:
+    required: true
+    type: string
+  PathToProject:
+    required: true
+    type: string
+  PathToTestProject:
+    required: true
+    type: string
+  SolutionFile:
+    required: true
+    type: string
+  BuildArgs:
+    required: false
+    type: string
+    default: '-c Release'
+  NpmAuthenticate:
+    required: false
+    type: boolean
+    default: false
 
-jobs:
-  build-app:
-    runs-on: [self-hosted, windows, ADO1]
+  SonarQubeProjectName:
+    required: true
+    type: string
+  SonarQubeExclusions:
+    required: false
+    type: string
+  SonarQubeCoverletReportPaths:
+    required: false
+    type: string
+  sonarqube_url:
+    required: false
+    type: string
+  sonarqube_token:
+    required: false
+    type: string
+  SonarprojectBaseDir:
+    required: false
+    type: string
 
-    steps:
+  SnykScanEnabled:
+    required: false
+    type: boolean
+    default: true
+  SnykAuthToken:
+    required: false
+    type: string
+  SnykOrg:
+    required: false
+    type: string
+  SnykProjectName:
+    required: false
+    type: string
+  git_access_token:
+    required: true
+    type: string
 
-      - name: checkout repo (target branch)
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch }}
+runs:
+  using: "composite"
+  steps:
 
-      - name: Load Pipeline Variables
-        id: load-vars
-        shell: powershell
-        run: |
-          Write-Host "Loading pipeline variables from Build.vars.yml"
-          $yamlPath = "$env:GITHUB_WORKSPACE\.github\workflows\sbp-admin-web.variables.yml"
+    - name: Display Pipeline Info
+      uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/display-pipeline-info.taskgroup@main
 
-          if (Test-Path $yamlPath) {
-            $content = Get-Content $yamlPath | Where-Object {$_ -match '^\s*[^#]'}
-            foreach ($line in $content) {
-              $key, $value = $line -split ":\s*", 2
-              if ($key -and $value) {
-                echo "$key=$value" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-                echo "::set-output name=$key::$value"
-              }
-            }
-          } else {
-            Write-Error "Build.vars.yml not found!"
-            exit 1
-          }
+    - name: Versioning
+      uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/version-use-buildnumber.taskgroup@main
+      with:
+        MajorVersion: ${{ inputs.MajorVersion }}
+        MinorVersion: ${{ inputs.MinorVersion }}
+        BuildNumber: ${{ inputs.BuildNumber }}
+        Rev: ${{ inputs.Rev }}
 
-      - name: debug
-        shell: powershell
-        run: |
-          Get-ChildItem -Path Env:* | Sort-Object Name | Format-Table -AutoSize
+    - name: Setup .NET 8
+      uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/setup-dotnet@main
+      with:
+        dotnet-version: '8.0.x'
 
-      - name: Clone GitHub Repo
-        uses: actions/checkout@v4
-        with:
-          repository: AMEX-GBTG-Sandbox/github-actions-shared-lib
-          ref: main
-          token: ${{ secrets.GIT_PAT }}
-          path: github-actions-shared-lib
+    - name: Check .NET SDK Version
+      shell: powershell
+      run: dotnet --info
 
-      - name: Login to Docker
-        shell: powershell
-        run: |
-          $tag = "${{ env.DockerDevRepo }}/${{ env.DockerImageName }}:${{ github.run_number }}"
-          echo "DOCKER_IMAGE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+    - name: Authenticate NPM and Install Dependencies
+      if: ${{ inputs.NpmAuthenticate == 'true' }}
+      shell: powershell
+      run: |
+        echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ${{ github.workspace }}\.npmrc
+        npm ci --prefix ${{ github.workspace }}
 
-      - name: call the other template
-        uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/javascript-typescript-docker-v2-gitclone.template@main
-        with:
-          GithubRepo: ${{ env.GithubRepo }}
-          Branch: ${{ github.event.inputs.branch }}
-          ProjectDirectory: ${{ env.ProjectDirectory }}
-          SonarprojectBaseDir: ${{ env.SonarprojectBaseDir }}
-          LintingEnabled: false
-          TypescriptCheckingEnabled: false
-          YarnBuildArgs: ${{ env.YarnBuildArgs }}
-          EnvFilePath: ${{ env.EnvFilePath }}
-          EnvBuildNumberUpdateEnabled: true
-          EnvBuildNumberFieldName: 'REACT_APP_ELT_VERSION'
-          MajorVersion: ${{ env.MajorVersion }}
-          MinorVersion: ${{ env.MinorVersion }}
-          BuildNumber: ${{ env.BuildNumber }}
-          Rev: ${{ env.Rev }}
-          Dockerfile: ${{ env.Dockerfile }}
-          DockerVersionArgs: ${{ env.Build.BuildNumber }}
-          DockerRepo: ${{ env.DockerDevRepo }}
-          DockerImageName: ${{ env.DockerImageName }}
-          DockerFolder: ${{ env.DockerFolder }}
-          SonarQubeProjectName: ${{ env.SonarProjectName }}
-          SonarQubeExclusions: ${{ env.SonarExclusion }}
-          SonarQubeCoverageReportPaths: ${{ env.SonarQubeCoverageReportPaths }}
-          SonarQubeTextExecutionReportPaths: ${{ env.SonarQubeTextExecutionReportPaths }}
-          SonarQubeSources: ${{ env.SonarQubeSources }}
-          SonarQubeTestSources: ${{ env.SonarQubeTestSources }}
-          SnykAuthToken: ${{ secrets.SNYK_AUTH_TOKEN }}
-          SnykOrg: ${{ secrets.SNYK_ORG }}
-          SnykProjectName: ${{ secrets.SNYK_PROJECT_NAME }}
-          token: ${{ secrets.GIT_PAT }}
-          git_access_token: ${{ secrets.GIT_ACCESS_TOKEN }}
-          docker_username: ${{ secrets.DOCKER_USERNAME }}
-          docker_password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Restore NuGet Packages
+      shell: powershell
+      run: dotnet restore ${{ inputs.SolutionFile }}
+
+    - name: Build Core Project
+      shell: powershell
+      run: dotnet build ${{ inputs.PathToProject }} ${{ inputs.BuildArgs }}
+
+    - name: Run SonarQube Full Analysis
+      uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/dotnet-sonar@main
+      with:
+        SonarQubeProjectName: ${{ inputs.SonarQubeProjectName }}
+        sonarqube_url: ${{ inputs.sonarqube_url }}
+        sonarqube_token: ${{ inputs.sonarqube_token }}
+        SonarQubeExclusions: ${{ inputs.SonarQubeExclusions }}
+        SonarQubeCoverletReportPaths: ${{ inputs.SonarQubeCoverletReportPaths }}
+        SolutionFile: ${{ inputs.SolutionFile }}
+        PathToTestProject: ${{ inputs.PathToTestProject }}
+        BuildArgs: ${{ inputs.BuildArgs }}
+        SonarprojectBaseDir: ${{ inputs.SonarprojectBaseDir }}
+
+    - name: Snyk Scan
+      if: ${{ inputs.SnykScanEnabled == 'true' }}
+      uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/snyk_dotnet_scan_taskgroup@main
+      with:
+        SnykAuthToken: ${{ inputs.SnykAuthToken }}
+        SnykSolutionFile: ${{ inputs.SolutionFile }}
+        SnykOrg: ${{ inputs.SnykOrg }}
+        SnykProjectName: ${{ inputs.SnykProjectName }}
+        git_access_token: ${{ inputs.git_access_token }}
+      continue-on-error: true
+
+    - name: Run Unit & Component Tests
+      shell: powershell
+      run: |
+        dotnet test ${{ inputs.PathToTestProject }} ${{ inputs.BuildArgs }} --filter "(TestCategory=Unit)|(TestCategory=Component)" /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+
+    - name: Publish .NET Project
+      shell: powershell
+      run: |
+        dotnet publish ${{ inputs.PathToProject }} ${{ inputs.BuildArgs }} --no-restore -o ${{ github.workspace }}\publish /p:Version=${{ inputs.BuildNumber }}
+
+    - name: Upload Published Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.ProjectName }}
+        path: ${{ github.workspace }}\publish
