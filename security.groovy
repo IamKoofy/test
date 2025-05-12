@@ -1,99 +1,53 @@
-name: build_and_push_nuget
-description: Builds, versions, and pushes a .NET NuGet package
+repository_dispatch.
 
-inputs:
-  VersioningTaskGroupFilename:
-    required: false
-    default: task-groups/version-use-buildnumber.taskgroup.yml
-  MajorVersion:
-    required: true
-  MinorVersion:
-    required: true
-  BuildNumber:
-    required: true
-  Rev:
-    required: true
-  AssemblyInfo:
-    required: true
-  SolutionFile:
-    required: true
-  BuildConfiguration:
-    required: true
-  BuildPlatform:
-    required: true
-  ProjectLocalPath:
-    required: true
-  NugetApiKey:
-    required: true
-  NugetSourceUrl:
-    required: true
+In the application repo, create a small workflow that fires on push or pull_request:
 
-runs:
-  using: composite
-  steps:
-    - name: Display Pipeline Info
-      uses: AEGBT/github-actions-shared-lib/.github/actions/display-pipeline-info.taskgroup@main
+yaml
+Copy
+Edit
+name: Trigger Central Workflow
 
-    - name: Versioning
-      uses: AEGBT/github-actions-shared-lib/.github/actions/version-use-buildnumber.taskgroup@main
-      with:
-        MajorVersion: ${{ inputs.MajorVersion }}
-        MinorVersion: ${{ inputs.MinorVersion }}
-        BuildNumber: ${{ inputs.BuildNumber }}
-        Rev: ${{ inputs.Rev }}
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
-    - name: Restore NuGet packages
-      shell: powershell
-      run: |
-        nuget restore "${{ inputs.SolutionFile }}"
+jobs:
+  notify-central:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger central workflow
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.CENTRAL_PAT }}" \
+            https://api.github.com/repos/AEGBT/hrg-devops-pipelines/dispatches \
+            -d '{"event_type":"adservice-pipeline","client_payload":{"ref":"refs/heads/main","repository":"AEGBT/MilkyWay-TravelConfirmation"}}'
+In the central pipeline repo, define a workflow that listens to this custom event:
 
-    - name: Update AssemblyInfo with BuildNumber
-      shell: powershell
-      run: |
-        $file = "${{ github.workspace }}\${{ inputs.AssemblyInfo }}"
-        attrib $file -r
-        (Get-Content $file) -replace "1.0.0.1", "${{ inputs.BuildNumber }}" | Out-File $file
-        Get-Content $file
+yaml
+Copy
+Edit
+name: AdService Pipeline
 
-    - name: Build Solution
-      shell: powershell
-      run: |
-        dotnet build "${{ inputs.SolutionFile }}" `
-          -c "${{ inputs.BuildConfiguration }}" `
-          -p:Platform="${{ inputs.BuildPlatform }}"
+on:
+  repository_dispatch:
+    types: [adservice-pipeline]
 
-    - name: Copy DLLs to staging
-      shell: powershell
-      run: |
-        $src = "${{ inputs.ProjectLocalPath }}\**\bin\${{ inputs.BuildConfiguration }}\*.dll"
-        $dst = "${{ github.workspace }}\staging\lib\Net40"
-        New-Item -ItemType Directory -Force -Path $dst
-        Copy-Item -Path $src -Destination $dst -Recurse -Force -Verbose
+jobs:
+  run-pipeline:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          repository: AEGBT/MilkyWay-TravelConfirmation
+          ref: ${{ github.event.client_payload.ref }}
+          token: ${{ secrets.CENTRAL_PAT }}
+      - name: Call composite action
+        uses: ./.github/actions/adservice-build
+Note: You'll need a Personal Access Token (PAT) in both repos stored as CENTRAL_PAT that has workflow and repo scopes.
 
-    - name: Copy Nuspec file
-      shell: powershell
-      run: |
-        $src = "${{ inputs.ProjectLocalPath }}\package.nuspec"
-        $dst = "${{ github.workspace }}\staging"
-        Copy-Item -Path $src -Destination $dst -Force
-
-    - name: Pack NuGet Package
-      shell: powershell
-      run: |
-        $nuspec = "${{ github.workspace }}\staging\package.nuspec"
-        $outDir = "${{ github.workspace }}\staging\nugetpackage"
-        New-Item -ItemType Directory -Force -Path $outDir
-        nuget pack $nuspec -OutputDirectory $outDir -Properties version="${{ inputs.BuildNumber }}"
-
-    - name: Push NuGet Package
-      shell: powershell
-      run: |
-        $package = Get-ChildItem "${{ github.workspace }}\staging\nugetpackage\*.nupkg" | Select-Object -First 1
-        if (-not $package) {
-          Write-Error "No NuGet package found to push."
-          exit 1
-        }
-        dotnet nuget push $package.FullName `
-          --source "${{ inputs.NugetSourceUrl }}" `
-          --api-key "${{ inputs.NugetApiKey }}" `
-          --skip-duplicate
