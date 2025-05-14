@@ -7,7 +7,9 @@
 
     for ($i = 0; $i -lt $sources.Count; $i++) {
       $line = $sources[$i].Trim()
-      if ($line -match '^\d+\.\s+(.+?)\s+\[Enabled\]|\[Disabled\]') {
+
+      # Fix: Proper parentheses to group regex options
+      if ($line -match '^\d+\.\s+(.+?)\s+\[(Enabled|Disabled)\]') {
         $potentialName = $Matches[1].Trim()
         $nextLine = $sources[$i + 1].Trim()
         if ($nextLine -eq $sourceUrl) {
