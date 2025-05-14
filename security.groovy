@@ -1,1 +1,8 @@
-"repo sync" approach where workflows from a central repository are periodically or automatically synced into application repos, so each application repo has its own local .github/workflows/*.yml files, but they're managed centrally. Here's how it compares and how it works:
+- name: Configure NuGet to use Azure Artifacts feed
+        run: |
+          dotnet nuget add source ^
+            --name "hrgtec" ^
+            --username "buildagent" ^
+            --password "${{ secrets.AZURE_DEVOPS_PAT }}" ^
+            --store-password-in-clear-text ^
+            "https://hrgtec.pkgs.visualstudio.com/_packaging/hrgtec/nuget/v3/index.json"
