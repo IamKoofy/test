@@ -2,13 +2,31 @@
   shell: pwsh
   run: |
     $sourceUrl = "https://hrgtec.pkgs.visualstudio.com/_packaging/hrgtec/nuget/v3/index.json"
-    $existingSourceName = dotnet nuget list source | ForEach-Object {
-      if ($_ -match "^\s*(\*?)\s*([^\s]+)\s+\[$sourceUrl\]") {
-        return $matches[2]
+    $sources = dotnet nuget list source
+    $sourceName = $null
+
+    for ($i = 0; $i -lt $sources.Count; $i++) {
+      $line = $sources[$i].Trim()
+      if ($line -match '^\d+\.\s+(.+?)\s+\[Enabled\]|\[Disabled\]') {
+        $potentialName = $Matches[1].Trim()
+        $nextLine = $sources[$i + 1].Trim()
+        if ($nextLine -eq $sourceUrl) {
+          $sourceName = $potentialName
+          break
+        }
       }
     }
 
-    if ($existingSourceName) {
-      Write-Host "Removing existing NuGet source: $existingSourceName"
-      dotnet nuget remove source $existingSourceName
+    if ($sourceName) {
+      Write-Host "Removing existing NuGet source: $sourceName"
+      dotnet nuget remove source "$sourceName"
+    } else {
+      Write-Host "No matching NuGet source to remove."
     }
+
+    dotnet nuget add source `
+      --name "hrgtec" `
+      --username "buildagent" `
+      --password "${{ inputs.azure-devops-pat }}" `
+      --store-password-in-clear-text `
+      $sourceUrl
