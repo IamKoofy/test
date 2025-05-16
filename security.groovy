@@ -36,7 +36,8 @@ steps:
       }
 
       $projectRoot = "$(Build.SourcesDirectory)\${{ parameters.gitFolder }}"
-      Get-ChildItem -Path $projectRoot -Filter *.csproj -Recurse | ForEach-Object {
+      Write-Host "Scanning project root: $projectRoot"
+      Get-ChildItem -Path $projectRoot -Filter *.csproj -Recurse -File | ForEach-Object {
           update-project-file $_
       }
 
