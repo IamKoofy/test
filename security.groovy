@@ -1,71 +1,150 @@
----
-- name: Automate copy model folder to PV each sprint release
-  hosts: localhost
-  gather_facts: false
+name: sbp-admin-web.build
 
-  vars:
-    freshservice_domain: "yourcompany"
-    freshservice_api_key: "{{ lookup('env', 'FS_API_KEY') }}"
-    change_ticket_id: "12345"
-    extraction_folder: "/tmp"
-    oc_project_name: "hotelreshop"
-    oc_project_path: "/app/projects/HotelReshop/"
-    zip_filename: "model.zip"  # Desired name after downloading
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Select the deployment environment"
+        required: true
+        default: "Dev"
+        type: choice
+        options:
+          - Dev
+          - Cert
+      branch:
+        description: "Branch to build (e.g. main, Release-107)"
+        required: true
+        default: "main"
+        type: string
+      trigger_release:
+        description: "Trigger release after build? (only applies for non-master branches)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
-  tasks:
-    - name: Get attachments from Freshservice change ticket
-      uri:
-        url: "https://{{ freshservice_domain }}.freshservice.com/api/v2/changes/{{ change_ticket_id }}/attachments"
-        method: GET
-        headers:
-          Authorization: "Basic {{ freshservice_api_key | b64encode }}"
-        return_content: yes
-        status_code: 200
-      register: attachments_response
+env:
+  GIT_PAT: ${{ secrets.GIT_PAT }}
+  SNYK_AUTH_TOKEN: ${{ secrets.SNYK_AUTH_TOKEN }}
+  SNYK_ORG: ${{ secrets.SNYK_ORG }}
+  SNYK_PROJECT_NAME: ${{ secrets.SNYK_PROJECT_NAME }}
+  SonarQubeToken: ${{ secrets.SONARQUBE_TOKEN }}
+  git_access_token: ${{ secrets.GIT_ACCESS_TOKEN }}
+  docker_username: ${{ secrets.DOCKER_USERNAME }}
+  docker_password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Extract the ZIP download URL from response
-      set_fact:
-        zip_url: "{{ attachments_response.json.attachments | selectattr('content_type', 'equalto', 'application/zip') | map(attribute='attachment_url') | list | first }}"
+jobs:
+  build-app:
+    runs-on: [self-hosted, windows, ADO1]
 
-    - name: Fail if no ZIP attachment found
-      fail:
-        msg: "No ZIP file found in the change ticket {{ change_ticket_id }}"
-      when: zip_url is not defined
+    steps:
+      - name: checkout repo (target branch)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
-    - name: Download the ZIP file from Freshservice
-      uri:
-        url: "{{ zip_url }}"
-        method: GET
-        headers:
-          Authorization: "Basic {{ freshservice_api_key | b64encode }}"
-        dest: "{{ extraction_folder }}/{{ zip_filename }}"
-        follow_redirects: all
-        force_basic_auth: yes
-        status_code: 200
-      register: download_result
+      - name: Load Pipeline Variables
+        id: load-vars
+        shell: powershell
+        run: |
+          Write-Host "Loading pipeline variables from Build.vars.yml"
+          $yamlPath = "$env:GITHUB_WORKSPACE\.github\workflows\sbp-admin-web.variables.yml"
 
-    - name: Unzip Model Directory
-      unarchive:
-        src: "{{ extraction_folder }}/{{ zip_filename }}"
-        dest: "{{ extraction_folder }}"
-        remote_src: false 
+          if (Test-Path $yamlPath) {
+            $content = Get-Content $yamlPath | Where-Object {$_ -match '^\s*[^#]'}
+            foreach ($line in $content) {
+              $key, $value = $line -split ":\s*", 2
+              if ($key -and $value) {
+                echo "$key=$value" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+                echo "::set-output name=$key::$value"
+              }
+            }
+          } else {
+            Write-Error "Build.vars.yml not found!"
+            exit 1
+          }
 
-    - name: Login to OpenShift
-      command: "oc login {{ server }} --token={{ token }}"
-      no_log: true
+      - name: Set Release Trigger Flag
+        shell: powershell
+        run: |
+          $branch = "${{ github.event.inputs.branch }}"
+          $triggerRelease = "${{ github.event.inputs.trigger_release }}"
+          
+          if ($branch -ieq "master") {
+            echo "TRIGGER_RELEASE=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+          } elseif ($triggerRelease -ieq "true") {
+            echo "TRIGGER_RELEASE=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+          } else {
+            echo "TRIGGER_RELEASE=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+          }
 
-    - name: Switch to the test project
-      command: "oc project {{ oc_project_name }}"
+      - name: debug
+        shell: powershell
+        run: |
+          Get-ChildItem -Path Env:* | Sort-Object Name | Format-Table -AutoSize
 
-    - name: List the pods
-      command: "oc get pods"
-      register: pods_output
+      - name: Clone GitHub Repo
+        uses: actions/checkout@v4
+        with:
+          repository: AMEX-GBTG-Sandbox/github-actions-shared-lib
+          ref: main
+          token: ${{ secrets.GIT_PAT }}
+          path: github-actions-shared-lib
 
-    - name: Copy the model directory to a pod containing 'rasanlu'
-      shell: >
-        oc cp ./{{ zip_filename | replace('.zip', '') }}
-        {{ item.split()[0] }}:{{ oc_project_path }}
-      args:
-        chdir: "{{ extraction_folder }}"
-      loop: "{{ pods_output.stdout_lines }}"
-      when: "'rasanlu' in item"
+      - name: Login to Docker
+        shell: powershell
+        run: |
+          $tag = "${{ env.DockerDevRepo }}/${{ env.DockerImageName }}:${{ github.run_number }}"
+          echo "DOCKER_IMAGE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      - name: call the other template
+        uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/javascript-typescript-docker-v2-gitclone.template@main
+        with:
+          GithubRepo: ${{ env.GithubRepo }}
+          Branch: ${{ github.event.inputs.branch }}
+          ProjectDirectory: ${{ env.ProjectDirectory }}
+          SonarprojectBaseDir: ${{ env.SonarprojectBaseDir }}
+          LintingEnabled: false
+          TypescriptCheckingEnabled: false
+          YarnBuildArgs: ${{ env.YarnBuildArgs }}
+          EnvFilePath: ${{ env.EnvFilePath }}
+          EnvBuildNumberUpdateEnabled: true
+          EnvBuildNumberFieldName: 'REACT_APP_ELT_VERSION'
+          MajorVersion: ${{ env.MajorVersion }}
+          MinorVersion: ${{ env.MinorVersion }}
+          BuildNumber: ${{ env.BuildNumber }}
+          Rev: ${{ env.Rev }}
+          Dockerfile: ${{ env.Dockerfile }}
+          DockerVersionArgs: ${{ env.Build.BuildNumber }}
+          DockerRepo: ${{ env.DockerDevRepo }}
+          DockerImageName: ${{ env.DockerImageName }}
+          DockerFolder: ${{ env.DockerFolder }}
+          SonarQubeProjectName: ${{ env.SonarProjectName }}
+          SonarQubeExclusions: ${{ env.SonarExclusion }}
+          SonarQubeCoverageReportPaths: ${{ env.SonarQubeCoverageReportPaths }}
+          SonarQubeTextExecutionReportPaths: ${{ env.SonarQubeTextExecutionReportPaths }}
+          SonarQubeSources: ${{ env.SonarQubeSources }}
+          SonarQubeTestSources: ${{ env.SonarQubeTestSources }}
+          SnykAuthToken: ${{ secrets.SNYK_AUTH_TOKEN }}
+          SnykOrg: ${{ secrets.SNYK_ORG }}
+          SnykProjectName: ${{ secrets.SNYK_PROJECT_NAME }}
+          token: ${{ secrets.GIT_PAT }}
+          git_access_token: ${{ secrets.GIT_ACCESS_TOKEN }}
+          docker_username: ${{ secrets.DOCKER_USERNAME }}
+          docker_password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Trigger Release Workflow
+        if: env.TRIGGER_RELEASE == 'true'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GIT_PAT }}
+          repository: your-org/your-repo
+          event-type: start-release
+          client-payload: |
+            {
+              "environment": "${{ github.event.inputs.environment }}",
+              "branch": "${{ github.event.inputs.branch }}",
+              "image_tag": "${{ env.DOCKER_IMAGE_TAG }}"
+            }
