@@ -40,7 +40,7 @@ jobs:
     runs-on: [self-hosted, windows, ADO1]
 
     steps:
-      - name: checkout repo (target branch)
+      - name: Checkout Repo (Target Branch)
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
@@ -49,7 +49,7 @@ jobs:
         id: load-vars
         shell: powershell
         run: |
-          Write-Host "Loading pipeline variables from Build.vars.yml"
+          Write-Host "Loading pipeline variables from sbp-admin-web.variables.yml"
           $yamlPath = "$env:GITHUB_WORKSPACE\.github\workflows\sbp-admin-web.variables.yml"
 
           if (Test-Path $yamlPath) {
@@ -62,7 +62,7 @@ jobs:
               }
             }
           } else {
-            Write-Error "Build.vars.yml not found!"
+            Write-Error "sbp-admin-web.variables.yml not found!"
             exit 1
           }
 
@@ -71,7 +71,7 @@ jobs:
         run: |
           $branch = "${{ github.event.inputs.branch }}"
           $triggerRelease = "${{ github.event.inputs.trigger_release }}"
-          
+
           if ($branch -ieq "master") {
             echo "TRIGGER_RELEASE=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
           } elseif ($triggerRelease -ieq "true") {
@@ -80,12 +80,12 @@ jobs:
             echo "TRIGGER_RELEASE=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
           }
 
-      - name: debug
+      - name: Debug Environment Variables
         shell: powershell
         run: |
           Get-ChildItem -Path Env:* | Sort-Object Name | Format-Table -AutoSize
 
-      - name: Clone GitHub Repo
+      - name: Clone Shared GitHub Action Repo
         uses: actions/checkout@v4
         with:
           repository: AMEX-GBTG-Sandbox/github-actions-shared-lib
@@ -93,13 +93,13 @@ jobs:
           token: ${{ secrets.GIT_PAT }}
           path: github-actions-shared-lib
 
-      - name: Login to Docker
+      - name: Set Docker Image Tag
         shell: powershell
         run: |
           $tag = "${{ env.DockerDevRepo }}/${{ env.DockerImageName }}:${{ github.run_number }}"
           echo "DOCKER_IMAGE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
 
-      - name: call the other template
+      - name: Call Composite Build Action
         uses: AMEX-GBTG-Sandbox/github-actions-shared-lib/.github/actions/javascript-typescript-docker-v2-gitclone.template@main
         with:
           GithubRepo: ${{ env.GithubRepo }}
@@ -135,16 +135,34 @@ jobs:
           docker_username: ${{ secrets.DOCKER_USERNAME }}
           docker_password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Trigger Release Workflow
-        if: env.TRIGGER_RELEASE == 'true'
-        uses: peter-evans/repository-dispatch@v3
+      - name: Save Docker Tag to File
+        shell: powershell
+        run: |
+          Set-Content -Path docker_image_tag.txt -Value "${{ env.DOCKER_IMAGE_TAG }}"
+
+      - name: Upload Docker Tag as Artifact
+        uses: actions/upload-artifact@v4
         with:
-          token: ${{ secrets.GIT_PAT }}
-          repository: your-org/your-repo
-          event-type: start-release
-          client-payload: |
-            {
-              "environment": "${{ github.event.inputs.environment }}",
-              "branch": "${{ github.event.inputs.branch }}",
-              "image_tag": "${{ env.DOCKER_IMAGE_TAG }}"
+          name: docker-image-tag
+          path: docker_image_tag.txt
+
+      - name: Trigger Release Workflow (if configured)
+        if: env.TRIGGER_RELEASE == 'true'
+        shell: powershell
+        run: |
+          $jsonPayload = @{
+            ref = "main"
+            inputs = @{
+              environment = "${{ github.event.inputs.environment }}"
+              docker_image_tag = "${{ env.DOCKER_IMAGE_TAG }}"
             }
+          } | ConvertTo-Json -Compress -Depth 3
+
+          Invoke-WebRequest -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/release.yml/dispatches" `
+            -Method POST `
+            -Headers @{
+              Authorization = "token ${{ secrets.GIT_PAT }}"
+              Accept = "application/vnd.github.v3+json"
+              "Content-Type" = "application/json"
+            } `
+            -Body $jsonPayload
