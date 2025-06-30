@@ -25,4 +25,28 @@
         status_code: [200, 201, 204]
         validate_certs: no
 
-    - name: Close the SR - invali
+    - name: Close the SR - invalid DC
+      uri:
+        url: "{{ api_url }}/{{ sr_id }}"
+        method: PUT
+        url_username: TOKEN
+        url_password:
+        return_content: yes
+        body_format: json
+        force_basic_auth: yes
+        follow_redirects: all
+        headers:
+          Content-Type: "application/json"
+        body: >
+          {
+            "ticket": {
+              "status": 5,
+              "description": "Pod restart request closed - DeploymentConfig '{{ sr_service }}' not found in project '{{ sr_project }}'."
+            }
+          }
+        status_code: [200, 201, 204]
+        validate_certs: no
+
+    - name: End play for invalid deployment config
+      meta: end_play
+  when: dc_check.rc != 0
