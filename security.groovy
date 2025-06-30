@@ -1,123 +1,117 @@
-variables:
-  - name: BuildParameters.ArtifactName
-    value: drop
-  - name: BuildPlatform
-    value: 'Any CPU'
-  - name: BuildConfiguration
-    value: 'Release'
-  - name: Build.BuildId
-    value: $(date:yyyyMMdd)$(rev:.r)
-  - group: GithubPAT
+- name: Login to OpenShift
+  shell: >
+    {% if sr_environment == 'CDE' %}
+    oc login --token={{ cde_token }} --server={{ cde_api_url }}
+    {% else %}
+    oc login --token={{ token }} --server={{ non_cde_api_url }}
+    {% endif %}
+  register: oc_login
+  failed_when: oc_login.rc != 0
 
-jobs:
-- job: Job_1
-  displayName: Build Job
-  pool:
-    name: main-build-pool
-  variables:
-    System.Debug: true
-  steps:
+**- name: Validate if OpenShift project exists**
+  shell: oc get project {{ sr_project }} --no-headers
+  register: project_check
+  **failed_when: false**
+  changed_when: false
 
-  - task: PowerShell@2
-    displayName: 'Clone GitHub Repo'
-    inputs:
-      targetType: 'inline'
-      script: |
-        $ErrorActionPreference = 'Stop'
-        $token = "$(GithubPAT)"
-        if (-not $token) {
-            throw "GitHub PAT is missing!"
-        }
-        $repo = "AEGBT/gbt-apac-ABM.EmailOffers"
-        $branch = "dev"
-        $localPath = "APAC-ABM-PROD"
-        $gitUrl = "https://$token@github.com/$repo.git"
-        Write-Host "Cloning from $gitUrl to $localPath..."
-        git clone -b $branch $gitUrl $localPath
-        Write-Host "Repo cloned successfully. Listing files:"
-        Get-ChildItem -Path $localPath -Recurse | ForEach-Object { Write-Host $_.FullName }
+**- name: Fail and close ticket if project does not exist**
+  when: project_check.rc != 0
+  block:
+    - name: Reply to user - Invalid project
+      uri:
+        url: "{{ api_url }}/{{ sr_id }}/reply"
+        method: POST
+        url_username: TOKEN
+        url_password:
+        return_content: yes
+        body_format: json
+        force_basic_auth: yes
+        follow_redirects: all
+        headers:
+          Content-Type: "application/json"
+        body: |
+          {
+            "body": "Dear user,<br><br>Your request for pod restart could not be processed because the provided OpenShift <b>project name '{{ sr_project }}'</b> is incorrect or does not exist. Please check the project name and raise a new request.<br><br>Regards,<br>GBT EPaaS Team",
+            "cc_emails": [ "myteam@myteam.com" ]
+          }
+        status_code: [200, 201, 204]
+        validate_certs: no
 
-  - task: SonarQubePrepare@5
-    displayName: Prepare SonarQube Analysis
-    inputs:
-      SonarQube: 3c7512f3-eb4b-41d5-918c-a632d362014d
-      projectKey: gbtapac-emailoffers-prod
-      projectName: gbtapac-emailoffers-prod
-      extraProperties: |
-        sonar.projectBaseDir=$(System.DefaultWorkingDirectory)/APAC-ABM-PROD
-        sonar.branch.name=
+    - name: Close the SR - invalid project
+      uri:
+        url: "{{ api_url }}/{{ sr_id }}"
+        method: PUT
+        url_username: TOKEN
+        url_password:
+        return_content: yes
+        body_format: json
+        force_basic_auth: yes
+        follow_redirects: all
+        headers:
+          Content-Type: "application/json"
+        body: >
+          {
+            "ticket": {
+              "status": 5,
+              "description": "Pod restart request closed - invalid project name provided."
+            }
+          }
+        status_code: [200, 201, 204]
+        validate_certs: no
 
-  - task: NuGetToolInstaller@1
-    inputs:
-      versionSpec: '>=6.6.1'
+    - name: End play for invalid project
+      meta: end_play**
 
-  - task: NuGetCommand@2
-    displayName: Restore NuGet packages
-    inputs:
-      solution: APAC-ABM-PROD\ABM.EmailOffers.sln
-      selectOrConfig: config
-      nugetConfigPath: APAC-ABM-PROD\nuget.config
-      externalEndpoints: 9d6b3432-5c32-4a0e-8620-9a06ff19f0d8
+**- name: Validate if DeploymentConfig exists in the project**
+  shell: oc get dc -n {{ sr_project }} {{ sr_service }} --no-headers
+  register: dc_check
+  **failed_when: false**
+  changed_when: false
 
-  - task: VSBuild@1
-    inputs:
-      solution: APAC-ABM-PROD\ABM.EmailOffers.sln
-      msbuildArgs: >
-        /p:DeployOnBuild=true 
-        /p:WebPublishMethod=Package 
-        /p:PackageAsSingleFile=true 
-        /p:SkipInvalidConfigurations=true 
-        /p:PackageLocation="$(build.artifactstagingdirectory)\\"
-      platform: $(BuildPlatform)
-      configuration: $(BuildConfiguration)
+**- name: Fail and close ticket if DC does not exist**
+  when: dc_check.rc != 0
+  block:
+    - name: Reply to user - Invalid DeploymentConfig
+      uri:
+        url: "{{ api_url }}/{{ sr_id }}/reply"
+        method: POST
+        url_username: TOKEN
+        url_password:
+        return_content: yes
+        body_format: json
+        force_basic_auth: yes
+        follow_redirects: all
+        headers:
+          Content-Type: "application/json"
+        body: |
+          {
+            "body": "Dear user,<br><br>Your request for pod restart could not be processed because the provided <b>deployment config '{{ sr_service }}'</b> does not exist in the project '{{ sr_project }}'. Please check the values and raise a new request.<br><br>Regards,<br>GBT EPaaS Team",
+            "cc_emails": [ "myteam@myteam.com" ]
+          }
+        status_code: [200, 201, 204]
+        validate_certs: no
 
-  - task: VisualStudioTestPlatformInstaller@1
-    inputs:
-      versionSelector: specificVersion
-      testPlatformVersion: '>=6.6.1'
+    - name: Close the SR - invalid DC
+      uri:
+        url: "{{ api_url }}/{{ sr_id }}"
+        method: PUT
+        url_username: TOKEN
+        url_password:
+        return_content: yes
+        body_format: json
+        force_basic_auth: yes
+        follow_redirects: all
+        headers:
+          Content-Type: "application/json"
+        body: >
+          {
+            "ticket": {
+              "status": 5,
+              "description": "Pod restart request closed - invalid deployment config name provided."
+            }
+          }
+        status_code: [200, 201, 204]
+        validate_certs: no
 
-  - task: VSTest@2
-    displayName: Run Unit Tests
-    inputs:
-      testAssemblyVer2: >
-        APAC-ABM-PROD\**\bin\$(BuildConfiguration)\**\*test*.dll
-        !**\obj\**
-        !**\ref\**
-        !**\xunit*.dll
-      vsTestVersion: toolsInstaller
-      runSettingsFile: APAC-ABM-PROD\EmailOfferUnittest.runsettings
-      codeCoverageEnabled: true
-
-  - task: PublishTestResults@2
-    displayName: Publish Test Results
-    inputs:
-      testRunner: VSTest
-      testResultsFiles: '$(System.DefaultWorkingDirectory)\APAC-ABM-PROD\**\TestResults\*.trx'
-
-  - task: SonarQubeAnalyze@5
-    displayName: Run SonarQube Code Analysis
-    inputs:
-      extraProperties: |
-        sonar.working.directory=.sonarqube
-
-  - task: SonarQubePublish@5
-    displayName: Publish SonarQube Results
-    continueOnError: true
-
-  - task: NexusIqPipelineTask@1
-    displayName: Nexus IQ Policy Evaluation
-    continueOnError: true
-    inputs:
-      nexusIqService: e80e497e-f9fd-4dd0-bf06-53020dfcb9e3
-      organizationId: e2d8254992b344f79a5ad89bce5e7e71
-      applicationId: ABM.EMailOffers
-      stage: Release
-      scanTargets: |
-        $(Build.ArtifactStagingDirectory)/**/*.dll
-        $(Build.ArtifactStagingDirectory)/**/*.exe
-
-  - task: PublishBuildArtifacts@1
-    displayName: Publish Build Artifact
-    inputs:
-      PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-      ArtifactName: '$(BuildParameters.ArtifactName)'
+    - name: End play for invalid deployment config
+      meta: end_play**
