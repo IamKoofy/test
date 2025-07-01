@@ -1,52 +1,48 @@
-- name: Check if DeploymentConfig exists
-  shell: oc get dc -n {{ sr_project }} {{ sr_service }} --no-headers
-  register: dc_check
-  failed_when: false
-  changed_when: false
+- name: Get details for the incident
+  uri:
+    url: "{{ api_url }}/{{ sr_id }}/requested_items"
+    method: GET
+    url_username: "{{ auth_username }}"
+    url_password:
+    return_content: yes
+    status_code: 200
+    validate_certs: no
+    body_format: json
+    force_basic_auth: yes
+    follow_redirects: all
+  register: sr_details
+  failed_when: sr_details.status != 200
 
-- block:
-    - name: Reply to user - Invalid DeploymentConfig
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}/reply"
-        method: POST
-        url_username: TOKEN
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: |
-          {
-            "body": "Dear user,<br><br>Your request for pod restart could not be processed because the provided <b>DeploymentConfig '{{ sr_service }}'</b> does not exist in the project '{{ sr_project }}'.<br><br>Please verify the service name and submit a new request.<br><br>Regards,<br>GBT EPaaS Team",
-            "cc_emails": [ "myteam@myteam.com" ]
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
+- name: Parse the JSON content from ticket data
+  set_fact:
+    json_data: "{{ sr_details.json | default({}) }}"
 
-    - name: Close the SR - invalid DC
-      uri:
-        url: "{{ api_url }}/{{ sr_id }}"
-        method: PUT
-        url_username: TOKEN
-        url_password:
-        return_content: yes
-        body_format: json
-        force_basic_auth: yes
-        follow_redirects: all
-        headers:
-          Content-Type: "application/json"
-        body: >
-          {
-            "ticket": {
-              "status": 5,
-              "description": "Pod restart request closed - DeploymentConfig '{{ sr_service }}' not found in project '{{ sr_project }}'."
-            }
-          }
-        status_code: [200, 201, 204]
-        validate_certs: no
+- name: Extract fields from the JSON data
+  set_fact:
+    extracted_info: >-
+      {{
+        json_data.requested_items[0].custom_fields
+         | dict2items
+         | selectattr('key', 'in', ['environment', 'name_of_the_project', 'name_of_the_service'])
+         | items2dict
+      }}
 
-    - name: End play for invalid deployment config
-      meta: end_play
-  when: dc_check.rc != 0
+- name: **Trim spaces from extracted SR input fields**
+  set_fact:
+    extracted_info:
+      environment: "{{ extracted_info.environment | default('') | trim }}"
+      name_of_the_project: "{{ extracted_info.name_of_the_project | default('') | trim }}"
+      name_of_the_service: "{{ extracted_info.name_of_the_service | default('') | trim }}"
+
+- name: Debug extracted SR details
+  debug:
+    msg: "Extracted details: {{ extracted_info }}"
+
+- name: Restart Pods for the SR
+  include_tasks: restart_pods.yml
+  vars:
+    sr_environment: "{{ extracted_info.environment }}"
+    sr_project: "{{ extracted_info.name_of_the_project }}"
+    sr_service: "{{ extracted_info.name_of_the_service }}"
+    sr_restart_all: "{{ json_data.requested_items[0].custom_fields.should_we_restart_all_pods_or_one_pod_at_a_time | lower | trim }}"
+    sr_pod_names: "{{ json_data.requested_items[0].custom_fields.name_of_the_pod | default('') | trim }}"
