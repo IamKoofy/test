@@ -1,26 +1,48 @@
-- task: PowerShell@2
-  displayName: 'Force kill AppPool worker processes'
-  inputs:
-    targetType: inline
-    script: |
-      $appPoolName = "$(ComponentSiteName)"
-      Write-Host "Checking processes for AppPool: $appPoolName"
-      Import-Module WebAdministration
+name: "Docker Build (Linux Compatible)"
+description: "Composite action to build a Docker image for ROSA deployment"
 
-      # Get worker processes for app pool
-      $workerProcesses = Get-WmiObject -Namespace "root\WebAdministration" -Class "WorkerProcess" | Where-Object { $_.AppPoolName -eq $appPoolName }
+inputs:
+  Dockerfile:
+    required: true
+    type: string
+  DockerRepo:
+    required: true
+    type: string
+  DockerImageName:
+    required: true
+    type: string
+  DockerVersionArgs:
+    required: false
+    type: string
+  DockerContext:
+    required: false
+    default: .
+    type: string
 
-      foreach ($wp in $workerProcesses) {
-          $pid = $wp.ProcessId
-          try {
-              Write-Host "Killing process $pid"
-              Stop-Process -Id $pid -Force
-          } catch {
-              Write-Warning "Failed to kill process $pid: $_"
-          }
-      }
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      # Double-check any dotnet.exe still locking files (optional)
-      Get-Process | Where-Object { $_.ProcessName -like "dotnet" } | ForEach-Object {
-          Write-Host "Checking dotnet process: $($_.Id)"
-      }
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and Push Docker Image
+      shell: bash
+      run: |
+        IMAGE_TAG="${{ inputs.DockerRepo }}/${{ inputs.DockerImageName }}:${{ github.run_number }}"
+        echo "Building image: $IMAGE_TAG"
+
+        docker build \
+          -f "${{ inputs.Dockerfile }}" \
+          -t "$IMAGE_TAG" \
+          ${{ inputs.DockerVersionArgs }} \
+          "${{ inputs.DockerContext }}"
+
+        echo "Pushing image: $IMAGE_TAG"
+        docker push "$IMAGE_TAG"
